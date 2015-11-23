@@ -27,7 +27,7 @@ echo ""
 echo "${bldblu} Starting Compiling${txtrst}"
 echo ""
 echo "${yel}"
-make -C $(pwd) O=output
+make -C $(pwd) O=output -j4
 
 tools/dtbTool -s 2048 -o output/arch/arm/boot/dt.img -p output/scripts/dtc/ output/arch/arm/boot/
 echo "${txtrst}"
