@@ -99,3 +99,5 @@ obj-$(CONFIG_TIMA_LOG)		+= tima_debug_log.o
 obj-$(CONFIG_CHECK_SIMSLOT_COUNT) += sim_slot.o
 obj-$(CONFIG_QC_SIM_SLOT_SWITCH) += qc_sim_slot_switch.o
 obj-$(CONFIG_SEC_MODEM) += modem_if/
+
+obj-$(CONFIG_DUALWAVE) += dualwave/
