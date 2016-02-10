@@ -198,12 +198,24 @@ void FSA9485_CheckAndHookAudioDock(int value)
 {
 	struct i2c_client *client = local_usbsw->client;
 	struct fsa9485_platform_data *pdata = local_usbsw->pdata;
+	unsigned int dev3;
 	int ret = 0;
+
+	dev3 = i2c_smbus_read_byte_data(client,
+			FSA9485_REG_RESERVED_1D);
+	if(dev3 < 0) {
+		dev_err(&client->dev, "%s: err %d\n", __func__, dev3);
+		return ;
+	}
 
 	if (value) {
 		pr_info("FSA9485_CheckAndHookAudioDock ON\n");
-			if (pdata->dock_cb)
-				pdata->dock_cb(FSA9485_ATTACHED_DESK_DOCK);
+			if (pdata->dock_cb) {
+				if(dev3 & 0x02)			// check vbus valid
+					pdata->dock_cb(FSA9485_ATTACHED_DESK_DOCK);
+				else
+					pdata->dock_cb(FSA9485_ATTACHED_DESK_DOCK_NO_VBUS);
+			}
 
 			ret = i2c_smbus_write_byte_data(client,
 					FSA9485_REG_MANSW1, SW_AUDIO);
@@ -789,7 +801,9 @@ static int fsa9485_detect_dev(struct fsa9485_usbsw *usbsw)
 #endif
 
 	if (local_usbsw->dock_ready == 1) {
-		if (adc == 0x10)
+		if (adc == 0x0f)
+			dev2 = DEV_INCOMPATIBLE; 
+		else if (adc == 0x10)
 			dev2 = DEV_SMARTDOCK;
 		else if (adc == 0x12)
 			dev2 = DEV_AUDIO_DOCK;
@@ -957,6 +971,12 @@ static int fsa9485_detect_dev(struct fsa9485_usbsw *usbsw)
 				}
 			}
 #endif /* !CONFIG_MUIC_FSA9485_SUPPORT_CAR_DOCK */
+		} else if (dev2 & DEV_INCOMPATIBLE) {
+			usbsw->adc = adc;
+			dev_info(&client->dev, "Inompatible CHARGER connect\n");
+
+			if (pdata->in_charger_cb)
+				pdata->in_charger_cb(FSA9485_ATTACHED);
 		/* SmartDock */
 		} else if (dev2 & DEV_SMARTDOCK) {
 			usbsw->adc = adc;
@@ -1051,9 +1071,9 @@ static int fsa9485_detect_dev(struct fsa9485_usbsw *usbsw)
 		/* Incompatible */
 		} else if (dev3 & DEV_VBUS_DEBOUNCE) {
 			dev_info(&client->dev,
-					"Incompatible Charger connect\n");
-			if (pdata->in_charger_cb)
-				pdata->in_charger_cb(FSA9485_ATTACHED);
+					"Unsupported ADC, VBUS is valid = CHARGER\n");
+			if (pdata->charger_cb)
+				pdata->charger_cb(FSA9485_ATTACHED);
 		}
 	/* Detached */
 	} else {
@@ -1154,6 +1174,12 @@ static int fsa9485_detect_dev(struct fsa9485_usbsw *usbsw)
 				dev_info(&client->dev, "[FSA9485] uart disconnect\n");
 			}
 #endif /* !CONFIG_MUIC_FSA9485_SUPPORT_CAR_DOCK */
+		} else if (usbsw->adc == 0x0f) {
+			dev_info(&client->dev, "Incompatible Charger disconnect\n");
+
+			if (pdata->in_charger_cb)
+				pdata->in_charger_cb(FSA9485_DETACHED);
+			usbsw->adc = 0;
 		} else if (usbsw->adc == 0x10) {
 			dev_info(&client->dev, "smart dock disconnect\n");
 
@@ -1232,9 +1258,9 @@ static int fsa9485_detect_dev(struct fsa9485_usbsw *usbsw)
 				pdata->charge_cb(FSA9485_DETACHED);
 		} else if (usbsw->dev3 & DEV_VBUS_DEBOUNCE) {
 			dev_info(&client->dev,
-					"Incompatible Charger disconnect\n");
-			if (pdata->in_charger_cb)
-				pdata->in_charger_cb(FSA9485_DETACHED);
+					"Unsupported adc, Charger disconnect\n");
+			if (pdata->charger_cb)
+				pdata->charger_cb(FSA9485_DETACHED);
 		}
 		/*	set auto mode	*/
 		i2c_smbus_write_byte_data(client,FSA9485_REG_CTRL, 0x1E);
@@ -1386,6 +1412,7 @@ static void fsa9485_mhl_detect(struct work_struct *work)
 	if (local_usbsw->mhl_ready == 0) {
 		fsa9485_set_mhl_cable(isMhlAttached);
 		dev_info(&usbsw->client->dev, "%s: ignore mhl-detection in booting time\n", __func__);
+		isMhlAttached = MHL_DETACHED;
 		return;
 	}
 

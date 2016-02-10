@@ -37,9 +37,9 @@ void ssp_dump_task(struct work_struct *work) {
 	mm_segment_t fs;
 	int buf_len, packet_len, residue, iRet = 0, index = 0 ,iRetTrans=0 ,iRetWrite=0;
 
-
 	big = container_of(work, struct ssp_big, work);
-	pr_err("[SSP]: %s - start ssp dumping (%d)(%d)\n", __func__, big->data->bMcuDumpMode, big->data->uDumpCnt);
+	pr_err("[SSP] %s - start ssp dumping (%d)(%d)\n", __func__,
+			big->data->bMcuDumpMode, big->data->uDumpCnt);
 	big->data->uDumpCnt++;
 	wake_lock(&big->data->ssp_wake_lock);
 
@@ -55,7 +55,7 @@ void ssp_dump_task(struct work_struct *work) {
 
 		if (IS_ERR(dump_file))
 		{
-			pr_err("[SSP]: %s - Can't open dump file\n", __func__);
+			pr_err("[SSP] %s - Can't open dump file\n", __func__);
 			set_fs(fs);
 			iRet = PTR_ERR(dump_file);
 			wake_unlock(&big->data->ssp_wake_lock);
@@ -87,7 +87,7 @@ void ssp_dump_task(struct work_struct *work) {
 
 		if (iRetTrans != SUCCESS)
 		{
-			pr_err("[SSP]: %s - Fail to receive data %d (%d)\n", __func__, iRetTrans,residue);
+			pr_err("[SSP] %s - Fail to receive data %d (%d)\n", __func__, iRetTrans,residue);
 			break;
 		}
 
@@ -97,7 +97,7 @@ void ssp_dump_task(struct work_struct *work) {
 
 			if (iRetWrite < 0)
 			{
-				pr_err("[SSP]: %s - Can't write dump to file\n", __func__);
+				pr_err("[SSP] %s - Can't write dump to file\n", __func__);
 				break;
 			}
 		}
@@ -125,7 +125,7 @@ void ssp_dump_task(struct work_struct *work) {
 	kfree(buffer);
 	kfree(big);
 #endif
-	pr_err("[SSP]: %s done\n", __func__);
+	pr_err("[SSP] %s done\n", __func__);
 }
 
 #ifdef CONFIG_SENSORS_SSP_SHTC1
@@ -158,7 +158,7 @@ void ssp_temp_task(struct work_struct *work) {
 
 		iRet = ssp_spi_sync(big->data, msg, 1000);
 		if (iRet != SUCCESS) {
-			pr_err("[SSP]: %s - Fail to receive data %d\n", __func__, iRet);
+			pr_err("[SSP] %s - Fail to receive data %d\n", __func__, iRet);
 			break;
 		}
 		// 12 = 1 chunk size for ks79.shin
@@ -166,7 +166,7 @@ void ssp_temp_task(struct work_struct *work) {
 		// each data consist of 2bytes
 		i = 0;
 		while (packet_len - i >= 12) {
-			ssp_dbg("[SSP]: %s %d %d %d %d %d %d", __func__,
+			ssp_dbg("[SSP] %s %d %d %d %d %d %d", __func__,
 					*((s16 *) (buffer + i + 0)), *((s16 *) (buffer + i + 2)),
 					*((s16 *) (buffer + i + 4)), *((s16 *) (buffer + i + 6)),
 					*((s16 *) (buffer + i + 8)), *((s16 *) (buffer +i + 10)));
@@ -187,7 +187,7 @@ void ssp_temp_task(struct work_struct *work) {
 	mutex_unlock(&big->data->bulk_temp_read_lock);
 	kfree(buffer);
 	kfree(big);
-	ssp_dbg("[SSP]: %s done\n", __func__);
+	ssp_dbg("[SSP] %s done\n", __func__);
 }
 #endif
 
@@ -202,12 +202,12 @@ int print_mcu_debug(char *pchRcvDataFrame, int *pDataIdx,
 	int cur = *pDataIdx;
 
 	if (iLength > iRcvDataFrameLength - *pDataIdx || iLength <= 0) {
-		ssp_dbg("[SSP]: MSG From MCU - invalid debug length(%d/%d/%d)\n",
+		ssp_dbg("[SSP] MSG From MCU - invalid debug length(%d/%d/%d)\n",
 			iLength, iRcvDataFrameLength, cur);
 		return iLength ? iLength : ERROR;
 	}
 
-	ssp_dbg("[SSP]: MSG From MCU - %s\n", &pchRcvDataFrame[*pDataIdx]);
+	ssp_dbg("[SSP] MSG From MCU - %s\n", &pchRcvDataFrame[*pDataIdx]);
 	*pDataIdx += iLength;
 	return 0;
 }
@@ -228,16 +228,16 @@ void sync_sensor_state(struct ssp_data *data)
 #ifdef CONFIG_SENSORS_SSP_YAS532
 	iRet = set_hw_offset(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - set_hw_offset failed\n", __func__);
+		pr_err("[SSP] %s - set_hw_offset failed\n", __func__);
 	}
 #endif
 	iRet = set_gyro_cal(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - set_gyro_cal failed\n", __func__);
+		pr_err("[SSP] %s - set_gyro_cal failed\n", __func__);
 	}
 	iRet = set_accel_cal(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - set_accel_cal failed\n", __func__);
+		pr_err("[SSP] %s - set_accel_cal failed\n", __func__);
 	}
 	udelay(10);
 
@@ -264,7 +264,7 @@ void sync_sensor_state(struct ssp_data *data)
 	data->bMcuDumpMode = sec_debug_is_enabled();
 	iRet = ssp_send_cmd(data, MSG2SSP_AP_MCU_SET_DUMPMODE,data->bMcuDumpMode);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - MSG2SSP_AP_MCU_SET_DUMPMODE failed\n", __func__);
+		pr_err("[SSP] %s - MSG2SSP_AP_MCU_SET_DUMPMODE failed\n", __func__);
 	}
 #endif
 }
@@ -314,6 +314,12 @@ static void print_sensordata(struct ssp_data *data, unsigned int uSensor)
 		ssp_dbg("[SSP] %u : %d %d %d(%ums)\n", uSensor,
 			data->buf[uSensor].x, data->buf[uSensor].y,
 			data->buf[uSensor].z, get_msdelay(data->adDelayBuf[uSensor]));
+		break;
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	case UV_SENSOR:
+		ssp_dbg("[SSP] %u : %u(%ums)\n", uSensor, data->buf[uSensor].uv,
+			get_msdelay(data->adDelayBuf[uSensor]));
 		break;
 #endif
 	case LIGHT_SENSOR:
@@ -378,7 +384,7 @@ static void debug_work_func(struct work_struct *work)
 	unsigned int uSensorCnt;
 	struct ssp_data *data = container_of(work, struct ssp_data, work_debug);
 
-	ssp_dbg("[SSP]: %s(%u) - Sensor state: 0x%x, RC: %u, CC: %u DC: %u TC: %u\n",
+	ssp_dbg("[SSP] %s(%u) - Sensor state: 0x%x, RC: %u, CC: %u DC: %u TC: %u\n",
 		__func__, data->uIrqCnt, data->uSensorState, data->uResetCnt,
 		data->uComFailCnt, data->uDumpCnt, data->uTimeOutCnt);
 

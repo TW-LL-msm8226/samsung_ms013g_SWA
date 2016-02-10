@@ -134,6 +134,36 @@ static DEVICE_ATTR(rory_control, S_IRUGO | S_IWUSR ,
 		rory_control_show, rory_control_store);
 #endif /*RORY_CONTROL*/
 
+#ifdef CONFIG_SGLTE_QSC_MODEM
+static ssize_t qsc_control_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int qsc_control;
+
+	sec_get_param(param_update_cp_bin, &qsc_control);
+
+	return snprintf(buf, sizeof(buf), "%d\n", qsc_control);
+}
+
+static ssize_t qsc_control_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	int qsc_control;
+
+	sscanf(buf, "%i", &qsc_control);
+
+	pr_info("qsc control store ..... %d\n", qsc_control);
+
+	/* write to param */
+	sec_set_param(param_update_cp_bin, &qsc_control);
+
+	return size;
+}
+
+static DEVICE_ATTR(qsc_control, S_IRUGO | S_IWUSR ,
+		qsc_control_show, qsc_control_store);
+#endif /*QSC_CONTROL*/
+
 static unsigned int convert_debug_level_str(const char *str)
 {
 	if (strncasecmp(str, "0xA0A0", 6) == 0)
@@ -315,6 +345,9 @@ static struct device_attribute *sec_misc_attrs[] = {
 	&dev_attr_drop_caches,
 #ifdef CONFIG_GSM_MODEM_SPRD6500
 	&dev_attr_update_cp_bin,
+#endif
+#ifdef CONFIG_SGLTE_QSC_MODEM
+	&dev_attr_qsc_control,
 #endif
 };
 

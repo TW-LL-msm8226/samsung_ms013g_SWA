@@ -54,7 +54,6 @@
 #include <linux/utsname.h>
 #include <linux/seq_file.h>
 #include <linux/nmi.h>
-
 #ifdef CONFIG_HOTPLUG_CPU
 #include <linux/cpumask.h>
 #include <linux/cpu.h>
@@ -69,7 +68,9 @@
 #include <linux/regulator/consumer.h>
 #include <linux/clk.h>
 #endif
-
+#if defined (CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_ATLANTICLTE_ATT) || defined(CONFIG_MACH_ATLANTIC3GEUR_OPEN) || defined(CONFIG_MACH_A5LTE_JPN_KDI)
+#include <asm/hardware/gic.h>
+#endif
 #include <linux/vmalloc.h>
 
 #ifdef CONFIG_SEC_DEBUG_VERBOSE_SUMMARY_HTML
@@ -1733,6 +1734,9 @@ void sec_debug_check_crash_key(unsigned int code, int value)
 			emerg_pet_watchdog();
 			dump_all_task_info();
 			dump_cpu_stat();
+#if defined (CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_ATLANTICLTE_ATT) || defined(CONFIG_MACH_ATLANTIC3GEUR_OPEN) || defined(CONFIG_MACH_A5LTE_JPN_KDI)
+			gic_dump_register_set();
+#endif
 			panic("Crash Key");
 		} else {
 			state = NONE;
@@ -2859,6 +2863,100 @@ static int __init sec_debug_user_fault_init(void)
 	return 0;
 }
 device_initcall(sec_debug_user_fault_init);
+
+#ifdef CONFIG_RESTART_REASON_SEC_PARAM
+static ssize_t sec_param_rr(struct file *file, const char __user *buffer,
+                        size_t count, loff_t *offs)
+{
+	char cmd[100];
+	unsigned long value;
+	unsigned int param_restart_reason;
+	if (count > sizeof(cmd) - 1)
+		return -EINVAL;
+	if (copy_from_user(cmd, buffer, count))
+		return -EFAULT;
+	cmd[count] = '\0';
+
+    if (cmd != NULL) {
+		pr_emerg("%s: Reboot command = %s\n", __func__, cmd);
+		if (!strncmp(cmd, "bootloader", 10)) {
+			param_restart_reason = 0x77665500;
+		} else if (!strncmp(cmd, "recovery", 8)) {
+			param_restart_reason = 0x77665502;
+		}else if (!strncmp(cmd, "power_off", 9)) {
+			param_restart_reason = 0x0;
+		}else if (!strncmp(cmd, "oem-", 4)) {
+			unsigned long code;
+			code = simple_strtoul(cmd + 4, NULL, 16) & 0xff;
+			param_restart_reason = 0x6f656d00 | code;
+#ifdef CONFIG_SEC_DEBUG
+		} else if (!strncmp(cmd, "sec_debug_hw_reset", 18)) {
+			param_restart_reason = 0x776655ee;
+#endif
+		} else if (!strncmp(cmd, "download", 8)) {
+			param_restart_reason = 0x12345671;
+		} else if (!strncmp(cmd, "sud", 3)) {
+			param_restart_reason = 0xabcf0000 | (cmd[3] - '0');
+		} else if (!strncmp(cmd, "debug", 5)
+				&& !kstrtoul(cmd + 5, 0, &value)) {
+			param_restart_reason = 0xabcd0000 | value;
+		} else if (!strncmp(cmd, "cpdebug", 7) /* set cp debug level */
+				&& !kstrtoul(cmd + 7, 0, &value)) {
+			param_restart_reason =0xfedc0000 | value;
+#if defined(CONFIG_SWITCH_DUAL_MODEM) || defined(CONFIG_MUIC_SUPPORT_RUSTPROOF)
+		} else if (!strncmp(cmd, "swsel", 5) /* set switch value */
+				&& !kstrtoul(cmd + 5, 0, &value)) {
+			param_restart_reason = 0xabce0000 | value;
+#endif
+		} else if (!strncmp(cmd, "nvbackup", 8)) {
+			param_restart_reason = 0x77665511;
+		} else if (!strncmp(cmd, "nvrestore", 9)) {
+			param_restart_reason = 0x77665512;
+		} else if (!strncmp(cmd, "nverase", 7)) {
+			param_restart_reason = 0x77665514;
+		} else if (!strncmp(cmd, "nvrecovery", 10)) {
+			param_restart_reason = 0x77665515;
+		} else if (!strncmp(cmd, "edl", 3)) {
+			param_restart_reason = 0x0; // Hack. Fix it later
+		} else if (strlen(cmd) == 0) {
+			printk(KERN_NOTICE "%s : value of cmd is NULL.\n", __func__);
+			param_restart_reason = 0x12345678;
+#ifdef CONFIG_SEC_PERIPHERAL_SECURE_CHK
+		} else if (!strncmp(cmd, "peripheral_hw_reset", 19)) {
+			param_restart_reason = 0x77665507;
+#endif
+		} else {
+			param_restart_reason = 0x77665501;
+		}
+	}
+	else {
+            param_restart_reason = 0x0; // Hack. Fix it later
+	}
+	printk(KERN_NOTICE "%s : param_restart_reason = 0x%x\n",
+			__func__,param_restart_reason);
+	/* In case of Hard reset IMEM contents are lost, hence writing param_restart_reason to param partition */
+	printk(KERN_NOTICE "%s: Write PARAM_RESTART_REASON 0x%x to param \n",__func__,param_restart_reason);
+	sec_set_param(param_index_restart_reason, &param_restart_reason);
+	return count;
+}
+
+static const struct file_operations proc_param_rr_operations = {
+	.write		= sec_param_rr,
+	.llseek		= noop_llseek,
+};
+
+static int __init sec_param_rr_init_procfs(void)
+{
+	if (!proc_create("param_rr", S_IWUSR, NULL,
+			 &proc_param_rr_operations))
+     {
+		pr_err("sec_param_rr_init_procfs Failed to register proc interface\n");
+        return -ENOMEM;
+     }
+     return 0;
+}
+device_initcall(sec_param_rr_init_procfs);
+#endif
 
 #ifdef CONFIG_USER_RESET_DEBUG
 static int set_reset_reason_proc_show(struct seq_file *m, void *v)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,6 +13,7 @@
 #include <linux/io.h>
 #include <media/v4l2-subdev.h>
 #include <linux/ratelimit.h>
+#include <asm/div64.h>
 
 #include "msm.h"
 #include "msm_isp_util.h"
@@ -345,6 +346,10 @@ long msm_isp_ioctl(struct v4l2_subdev *sd,
 	 * longer time to complete such as start/stop ISP streams
 	 * which blocks until the hardware start/stop streaming
 	 */
+	if (vfe_dev->vfe_open_cnt == 0) {
+		pr_err("%s: No open VFE nodes!\n", __func__);
+		return rc;
+	}
 	ISP_DBG("%s cmd: %d\n", __func__, _IOC_TYPE(cmd));
 	switch (cmd) {
 	case VIDIOC_MSM_VFE_REG_CFG: {
@@ -556,6 +561,10 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		}
 		break;
 	}
+	case GET_SOC_HW_VER:
+		break;
+	case GET_MAX_CLK_RATE:
+		break;
 	}
 	return 0;
 }
@@ -596,10 +605,17 @@ int msm_isp_proc_cmd(struct vfe_device *vfe_dev, void *arg)
 		goto copy_cmd_failed;
 	}
 
+	if( (vfe_dev->frame_id == proc_cmd->frame_id && vfe_dev->eof_event_occur != 1)
+		|| proc_cmd->frame_id == 0) {
 	for (i = 0; i < proc_cmd->num_cfg; i++)
 		msm_isp_send_hw_cmd(vfe_dev, &reg_cfg_cmd[i],
 			cfg_data, proc_cmd->cmd_len);
-
+	}
+	else{
+		rc = MSM_VFE_REG_CFG_FRAME_ID_NOT_MATCH_ERROR;
+		pr_err("%s: not match platform_id=%u, kernel_id=%u, eof_event_occur=%u\n",
+			__func__,proc_cmd->frame_id, vfe_dev->frame_id, vfe_dev->eof_event_occur);
+	}
 	if (copy_to_user(proc_cmd->cfg_data,
 			cfg_data, proc_cmd->cmd_len)) {
 		rc = -EFAULT;

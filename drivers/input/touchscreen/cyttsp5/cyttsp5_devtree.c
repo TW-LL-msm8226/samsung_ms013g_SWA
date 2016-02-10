@@ -30,7 +30,7 @@
 #include "cyttsp5_regs.h"
 #include <linux/cyttsp5_platform.h>
 
-#if defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_PATEK_PROJECT)
+#if defined(CONFIG_SEC_ATLANTIC_PROJECT)
 #include <linux/of_gpio.h>
 #endif
 
@@ -555,51 +555,11 @@ static struct cyttsp5_core_platform_data *create_and_get_core_pdata(
 	}
 
 	/* Required fields */
-#ifdef CONFIG_SEC_PATEK_PROJECT
-	pdata->tsp_sda = of_get_named_gpio(core_node, "cy,tsp_sda", 0);
-	pdata->tsp_scl  = of_get_named_gpio(core_node, "cy,tsp_scl", 0);
-	pdata->irq_gpio = of_get_named_gpio(core_node, "cy,irq_gpio", 0);
-	pdata->tsp_sel = of_get_named_gpio(core_node, "cy,tsp_sel", 0);
-	pdata->cresetb = of_get_named_gpio(core_node, "cy,cresetb", 0);
-
-	gpio_tlmm_config(GPIO_CFG(pdata->irq_gpio, 0, GPIO_CFG_INPUT,
-		GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-
-	gpio_tlmm_config(GPIO_CFG(pdata->cresetb, 0,GPIO_CFG_OUTPUT,
-		GPIO_CFG_NO_PULL,GPIO_CFG_2MA), 1);
-
-	gpio_tlmm_config(GPIO_CFG(FPGA_CDONE_GPIO, 0,GPIO_CFG_OUTPUT,
-		GPIO_CFG_NO_PULL,GPIO_CFG_2MA), 1);
-
-	rc = gpio_request(pdata->cresetb, "fpga_creset");
-	if (rc)
-		pr_err("%s: error to request fpga cresetb gpio : %d\n", __func__, rc);
-
-	rc = gpio_direction_output(pdata->cresetb, 1);
-	if (rc)
-		pr_err("%s: error to set cresetb : %d\n", __func__, rc);
-
-
-	rc = of_property_read_u32(core_node, "cy,supply-num", &pdata->num_of_supply);
-	if (pdata->num_of_supply > 0) {
-		pdata->name_of_supply = kzalloc(sizeof(char *) * pdata->num_of_supply, GFP_KERNEL);
-		for (i = 0; i < pdata->num_of_supply; i++) {
-			rc = of_property_read_string_index(core_node, "cy,supply-name",
-				i, &pdata->name_of_supply[i]);
-			if (rc && (rc != -EINVAL)) {
-				pr_err("%s: Unable to read %s\n", __func__,
-						"cy,supply-name");
-				goto fail_free;
-			}
-			pr_info("%s: supply%d: %s\n", __func__, i, pdata->name_of_supply[i]);
-		}
-	}
-#else
 	rc = of_property_read_u32(core_node, "cy,irq_gpio", &value);
 	if (rc)
 		goto fail_free;
 	pdata->irq_gpio = value;
-#endif
+
 	rc = of_property_read_u32(core_node, "cy,hid_desc_register", &value);
 	if (rc)
 		goto fail_free;

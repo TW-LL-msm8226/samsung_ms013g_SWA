@@ -9,7 +9,6 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-#define DEBUG
 #include <linux/battery/sec_fuelgauge.h>
 #include <linux/battery/sec_charger.h>
 #include <linux/battery/sec_battery.h>
@@ -33,6 +32,7 @@ static enum power_supply_property sec_fuelgauge_props[] = {
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_TEMP_AMBIENT,
+	POWER_SUPPLY_PROP_ENERGY_FULL,
 };
 
 /* capacity is  0.1% unit */
@@ -47,6 +47,15 @@ static void sec_fg_get_scaled_capacity(
 	dev_dbg(&fuelgauge->client->dev,
 		"%s: scaled capacity (%d.%d)\n",
 		__func__, val->intval/10, val->intval%10);
+
+#if defined(CONFIG_MACH_KLIMT)|| defined(CONFIG_MACH_CHAGALL)
+	/* Reduce soc jump when battery is full
+	   change capacity_max to initial value */
+	if (fuelgauge->is_charging) {
+		if (fuelgauge->capacity_max > fuelgauge->pdata->capacity_max)
+			fuelgauge->capacity_max--;
+	}
+#endif
 }
 
 /* capacity is integer */
@@ -95,11 +104,20 @@ static int sec_fg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 	case POWER_SUPPLY_PROP_TEMP:
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT:
+	case POWER_SUPPLY_PROP_ENERGY_FULL:
 		if (!sec_hal_fg_get_property(fuelgauge->client, psp, val))
 			return -EINVAL;
 		if (psp == POWER_SUPPLY_PROP_CAPACITY) {
 			if (soc_type == SEC_FUELGAUGE_CAPACITY_TYPE_RAW)
 				break;
+
+			/* check whether doing the wake_unlock */
+			if ((val->intval > fuelgauge->pdata->fuel_alert_soc) &&
+				fuelgauge->is_fuel_alerted) {
+				wake_unlock(&fuelgauge->fuel_alert_wake_lock);
+				sec_hal_fg_fuelalert_init(fuelgauge->client,
+					fuelgauge->pdata->fuel_alert_soc);
+			}
 
 			if (fuelgauge->pdata->capacity_calculation_type &
 				(SEC_FUELGAUGE_CAPACITY_TYPE_SCALE |
@@ -116,14 +134,6 @@ static int sec_fg_get_property(struct power_supply *psy,
 
 			/* get only integer part */
 			val->intval /= 10;
-
-			/* check whether doing the wake_unlock */
-			if ((val->intval > fuelgauge->pdata->fuel_alert_soc) &&
-				fuelgauge->is_fuel_alerted) {
-				wake_unlock(&fuelgauge->fuel_alert_wake_lock);
-				sec_hal_fg_fuelalert_init(fuelgauge->client,
-					fuelgauge->pdata->fuel_alert_soc);
-			}
 
 			/* (Only for atomic capacity)
 			 * In initial time, capacity_old is 0.

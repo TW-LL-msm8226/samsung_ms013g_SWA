@@ -238,9 +238,9 @@ static int smb358_get_charging_status(struct i2c_client *client)
 	u8 data_c = 0;
 	u8 data_d = 0;
 	u8 data_e = 0;
+	u8 therm_control_a = 0;
+	u8 other_control_a = 0;
 
-	/* need delay to update charger status */
-	msleep(500);
 
 	/*smb358_test_read(client);*/
 
@@ -259,6 +259,12 @@ static int smb358_get_charging_status(struct i2c_client *client)
 	smb358_i2c_read(client, SMB358_STATUS_E, &data_e);
 	dev_dbg(&client->dev,
 		"%s : charger status E(0x%02x)\n", __func__, data_e);
+	smb358_i2c_read(client, SMB358_THERM_CONTROL_A, &therm_control_a);
+	dev_dbg(&client->dev,
+		"%s : THERM_CONTROL_A(0x%02x)\n", __func__, therm_control_a);
+	smb358_i2c_read(client, SMB358_OTHER_CONTROL_A, &other_control_a);
+	dev_dbg(&client->dev,
+		"%s : OTHER_CONTROL_A(0x%02x)\n", __func__, other_control_a);
 	/* At least one charge cycle terminated,
 	 * Charge current < Termination Current
 	 */
@@ -673,16 +679,21 @@ static void smb358_charger_function_control(
 		smb358_set_command(client, SMB358_FLOAT_VOLTAGE, data);
 		/* Disable Automatic Recharge */
 		smb358_set_command(client, SMB358_CHARGE_CONTROL, 0x84);
-		smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x0F);
 		smb358_set_command(client, SMB358_PIN_ENABLE_CONTROL, 0x09);
 		smb358_set_command(client, SMB358_THERM_CONTROL_A, 0xF0);
 		smb358_set_command(client, SMB358_SYSOK_USB30_SELECTION, 0x08);
 		smb358_set_command(client, SMB358_OTHER_CONTROL_A, 0x01);
 		smb358_set_command(client, SMB358_OTG_TLIM_THERM_CONTROL, 0xF6);
 		smb358_set_command(client, SMB358_LIMIT_CELL_TEMPERATURE_MONITOR, 0xA5);
-		smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x00);
 		smb358_set_command(client, SMB358_STATUS_INTERRUPT, 0x00);
 		smb358_set_command(client, SMB358_COMMAND_B, 0x00);
+		if (charger->pdata->chg_irq) {
+			smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x1F);
+			smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x0C);
+		} else {
+			smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x0F);
+			smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x00);
+		}
 
 	} else {
 		int full_check_type;
@@ -901,7 +912,7 @@ static void smb358_charger_function_control(
 
 #if defined(CONFIG_MACH_MATISSELTE_VZW)
 		/* [STEP - 10] =================================================
-		 * Mininum System Voltage(bit 6) - 3.45v(0)
+		 * Mininum System Voltage(bit 6) - 3.15v(0)
 		 * Therm monitor(bit 4) - Disabled(1)
 		 * Soft Cold/Hot Temp Limit Behavior(bit 3:2, bit 1:0) -
 		 *   Charger Current + Float voltage Compensation(11)
@@ -911,32 +922,80 @@ static void smb358_charger_function_control(
 
 		/* [STEP - 11] ================================================
 		 * OTG/ID Pin Control(bit 7:6) - RID Disabled, OTG I2c(00)
-		 * Minimum System Voltage(bit 4) - 3.45V(0)
+		 * Minimum System Voltage(bit 4) - 3.15V(0)
 		 * Low-Battery/SYSOK Voltage threshold(bit 3:0) - 2.5V(0001)
 		 *    if this bit is disabled,
 		 *    input current for system will be disabled
 		 */
 		smb358_set_command(client,
 			SMB358_OTHER_CONTROL_A, 0x11);
-#else
+#elif defined(CONFIG_MACH_CHAGALL_USC)
 		/* [STEP - 10] =================================================
-		 * Mininum System Voltage(bit 6) - 3.75v(1)
+		 * Mininum System Voltage(bit 6) - 3.45v(0)
+		 * Therm monitor(bit 4) - Disabled(1)
+		 * Soft Cold/Hot Temp Limit Behavior(bit 3:2, bit 1:0) -
+		 *   Charger Current + Float voltage Compensation(11)
+		 */
+		smb358_set_command(client,
+				SMB358_THERM_CONTROL_A, 0xB0);
+
+		/* [STEP - 11] ================================================
+		 * OTG/ID Pin Control(bit 7:6) - RID Disabled, OTG I2c(00)
+		 * Minimum System Voltage(bit 4) - 3.45V(0)
+		 * Low-Battery/SYSOK Voltage threshold(bit 3:0) - 2.5V(0001)
+		 *    if this bit is disabled,
+		 *    input current for system will be disabled
+		 */
+		smb358_set_command(client,
+				SMB358_OTHER_CONTROL_A, 0x01);
+#else
+{
+		u8 therm_control_a, other_control_a;
+		/* [STEP - 10] =================================================
+		* Mininum System Voltage(bit 6)
+		* 3.15V(0), 3.45V(0), 3.60V(1), 3.75V(1)
 		* Therm monitor(bit 4) - Disabled(1)
 		* Soft Cold/Hot Temp Limit Behavior(bit 3:2, bit 1:0) -
 		*   Charger Current + Float voltage Compensation(11)
 		*/
+		smb358_i2c_read(client, SMB358_THERM_CONTROL_A, &therm_control_a);
+		pr_info("%s : THERM_CONTROL_A(0x%02x)\n", __func__, therm_control_a);
+		smb358_i2c_read(client, SMB358_OTHER_CONTROL_A, &other_control_a);
+		pr_info("%s : OTHER_CONTROL_A(0x%02x)\n", __func__, other_control_a);
+
+		pr_info("%s: chg_min_system_voltage(%d)\n", __func__, charger->pdata->chg_min_system_voltage);
+
+		if (charger->pdata->chg_min_system_voltage <= 3150) {
+			therm_control_a &= ~(0x1 << 6);
+			other_control_a |=  0x1 << 4;
+		} else if (charger->pdata->chg_min_system_voltage <= 3450) {
+			therm_control_a &= ~(0x1 << 6);
+			other_control_a &= ~(0x1 << 4);
+		} else if (charger->pdata->chg_min_system_voltage <= 3600) {
+			therm_control_a |= 0x1 << 6;
+			other_control_a &= ~(0x1 << 4);
+		} else {
+			therm_control_a |= 0x1 << 6;
+			other_control_a |= 0x1 << 4;
+		}
+
+		pr_info("%s: therm_control_a(0x%02x)\n", __func__, therm_control_a);
+		pr_info("%s: other_control_a(0x%02x)\n", __func__, other_control_a);
+
 		smb358_set_command(client,
-			SMB358_THERM_CONTROL_A, 0xF0);
+			SMB358_THERM_CONTROL_A, therm_control_a);
 
 		/* [STEP - 11] ================================================
 		 * OTG/ID Pin Control(bit 7:6) - RID Disabled, OTG I2c(00)
-		 * Minimum System Voltage(bit 4) - 3.75V(1)
+		 * Minimum System Voltage(bit 4)
+		 * 3.15V(1), 3.45V(0), 3.60V(0), 3.75(1)
 		 * Low-Battery/SYSOK Voltage threshold(bit 3:0) - 2.5V(0001)
 		 *   if this bit is disabled,
 		 *   input current for system will be disabled
 		 */
 		smb358_set_command(client,
-			SMB358_OTHER_CONTROL_A, 0x11);
+			SMB358_OTHER_CONTROL_A, other_control_a);
+}
 #endif
 
 		/* [STEP - 12] ================================================
@@ -955,10 +1014,15 @@ static void smb358_charger_function_control(
 			SMB358_LIMIT_CELL_TEMPERATURE_MONITOR, 0x01);
 
 		/* [STEP - 14] ================================================
-		 * FAULT interrupt - Disabled
+		 * FAULT interrupt - Disabled for non chg_irq, OVP enabled for chg_irq
 		*/
-		smb358_set_command(client,
-			SMB358_FAULT_INTERRUPT, 0x00);
+		if (charger->pdata->chg_irq) {
+			smb358_set_command(client,
+				SMB358_FAULT_INTERRUPT, 0x0C);
+		} else {
+			smb358_set_command(client,
+				SMB358_FAULT_INTERRUPT, 0x00);
+		}
 
 		/* [STEP - 15] ================================================
 		 * STATUS interrupt - Clear
@@ -1536,8 +1600,12 @@ static void smb358_chg_isr_work(struct work_struct *work)
 		case POWER_SUPPLY_HEALTH_UNDERVOLTAGE:
 			dev_info(&charger->client->dev,
 				"%s: Interrupted by OVP/UVLO\n", __func__);
+			/* Do not set POWER_SUPPLY_PROP_HEALTH
+			* excute monitor work again.
+			* ovp/uvlo is checked by polling
+			*/
 			psy_do_property("battery", set,
-				POWER_SUPPLY_PROP_HEALTH, val);
+				POWER_SUPPLY_PROP_CHARGE_TYPE, val);
 			break;
 
 		case POWER_SUPPLY_HEALTH_UNSPEC_FAILURE:
@@ -1548,6 +1616,12 @@ static void smb358_chg_isr_work(struct work_struct *work)
 		case POWER_SUPPLY_HEALTH_GOOD:
 			dev_err(&charger->client->dev,
 				"%s: Interrupted but Good\n", __func__);
+			/* Do not set POWER_SUPPLY_PROP_HEALTH
+			* excute monitor work again.
+			* ovp/uvlo is checked by polling
+			*/
+			psy_do_property("battery", set,
+				POWER_SUPPLY_PROP_CHARGE_TYPE, val);
 			break;
 
 		case POWER_SUPPLY_HEALTH_UNKNOWN:
@@ -1698,10 +1772,32 @@ static int smb358_charger_parse_dt(struct sec_charger_info *charger)
 		if (ret < 0)
 			pr_err("%s: chg_float_voltage read failed (%d)\n", __func__, ret);
 
+		ret = of_property_read_u32(np, "battery,chg_min_system_voltage",
+					&pdata->chg_min_system_voltage);
+		if (ret < 0) {
+			pr_err("%s: chg_min_system_voltage read failed (%d)\n", __func__, ret);
+			pdata->chg_min_system_voltage = 3750;
+			pr_err("%s: chg_min_system_voltage is used as default setting (%d)\n",
+					__func__, pdata->chg_min_system_voltage);
+		}
+
 		ret = of_property_read_u32(np, "battery,ovp_uvlo_check_type",
 					&pdata->ovp_uvlo_check_type);
 		if (ret < 0)
 			pr_err("%s: ovp_uvlo_check_type read failed (%d)\n", __func__, ret);
+
+		ret = of_get_named_gpio(np, "battery,chg_int", 0);
+		if (ret > 0) {
+			pdata->chg_irq = gpio_to_irq(ret);
+			pr_info("%s reading chg_int_gpio = %d\n", __func__, ret);
+		} else {
+			pr_info("%s reading chg_int_gpio is empty\n", __func__);
+		}
+
+		ret = of_property_read_u32(np, "battery,chg_irq_attr",
+					(unsigned int *)&pdata->chg_irq_attr);
+		if (ret)
+			pr_info("%s: chg_irq_attr is Empty\n", __func__);
 
 		ret = of_property_read_u32(np, "battery,full_check_type",
 					&pdata->full_check_type);

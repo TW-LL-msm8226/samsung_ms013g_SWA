@@ -194,11 +194,7 @@ extern void bms_quickstart(void);
 #define BOOST_PWR_EN			BIT(7)
 #ifdef SEC_CHARGER_CODE
 /* OVP : 7.0v - UVLO : 4.05v */
-#ifdef CONFIG_MACH_KANAS3G_CTC
-#define OVP_UVLO_THRESHOLD		0x3F
-#else
 #define OVP_UVLO_THRESHOLD		0x33
-#endif
 #else
 #define OVP_UVLO_THRESHOLD		0x3F
 #endif
@@ -1662,6 +1658,10 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 		chip->cable_type = msm8930_get_cable_status();
 		if (chip->cable_type == CABLE_TYPE_DESK_DOCK)
 			chip->cable_type = CABLE_TYPE_MISC;
+		#if defined(CONFIG_MACH_MS01_KOR_LTE)
+		else if (chip->cable_type == CABLE_TYPE_JIG_UART_OFF_VB)
+			chip->cable_type = CABLE_TYPE_UARTOFF;
+		#endif
 	} else if ((usb_ov_sts & 0xC0) == 0x40) {
 		pr_err("USB-IN triggered : usbin OVER VOLTAGE \n");
 		#ifndef CONFIG_NOT_USE_EXT_OVP
@@ -1994,7 +1994,8 @@ static void sec_bat_ext_ovp_confirm(struct work_struct *work)
 				chip->cable_type == CABLE_TYPE_CDP ||
 				chip->cable_type == CABLE_TYPE_MISC ||
 				chip->cable_type == CABLE_TYPE_UARTOFF ||
-				chip->cable_type == CABLE_TYPE_AUDIO_DOCK) {
+				chip->cable_type == CABLE_TYPE_AUDIO_DOCK ||
+				chip->cable_type == CABLE_TYPE_INCOMPATIBLE) {
 		gpio_set_value(chip->ovp_gpio, 1);
 		pr_err("Ext OVP is set again\n");
 
@@ -2072,7 +2073,8 @@ qpnp_chg_chgr_chg_fastchg_irq_handler(int irq, void *_chip)
 					chip->cable_type == CABLE_TYPE_CDP ||
 					chip->cable_type == CABLE_TYPE_MISC ||
 					chip->cable_type == CABLE_TYPE_UARTOFF ||
-					chip->cable_type == CABLE_TYPE_AUDIO_DOCK) {
+					chip->cable_type == CABLE_TYPE_AUDIO_DOCK ||
+					chip->cable_type == CABLE_TYPE_INCOMPATIBLE) {
 			gpio_set_value(chip->ovp_gpio, 1);
 
 			pr_err("Enable sec_bat_ext_ovp_work\n");
@@ -5247,6 +5249,20 @@ sec_bat_read_dt_props(struct qpnp_chg_chip *chip)
         pr_err("imax-usb %d \n",chip->batt_pdata->imax_usb);
 #endif
 
+#if defined(CONFIG_MACH_MS01_KOR_LTE)
+	chip->batt_pdata->temp_high_block_event = 700;
+	chip->batt_pdata->temp_high_recover_event = 410;
+	chip->batt_pdata->temp_low_block_event = -50;
+	chip->batt_pdata->temp_low_recover_event = 0;
+	chip->batt_pdata->temp_high_block_normal = 600;
+	chip->batt_pdata->temp_high_recover_normal = 410;
+	chip->batt_pdata->temp_low_block_normal = -50;
+	chip->batt_pdata->temp_low_recover_normal = 0;
+	chip->batt_pdata->temp_high_block_lpm = 600;
+	chip->batt_pdata->temp_high_recover_lpm = 410;
+	chip->batt_pdata->temp_low_block_lpm = -50;
+	chip->batt_pdata->temp_low_recover_lpm = 0;
+#else
         SEC_BAT_OF_PROP_READ(chip, temp_high_block_event, "temp-high-block-event", rc, 0);
         SEC_BAT_OF_PROP_READ(chip, temp_high_recover_event, "temp-high-recover-event", rc, 0);
         SEC_BAT_OF_PROP_READ(chip, temp_low_block_event, "temp-low-block-event", rc, 0);
@@ -5261,6 +5277,7 @@ sec_bat_read_dt_props(struct qpnp_chg_chip *chip)
         SEC_BAT_OF_PROP_READ(chip, temp_low_recover_lpm, "temp-low-recover-lpm", rc, 0);
         if (rc)
                 pr_err("failed to read SEC BTM dt parameters %d\n", rc);
+#endif
 
 #ifdef SEC_CHARGER_DEBUG
         pr_err("EVENT temp-high-block %d\n",chip->batt_pdata->temp_high_block_event);
@@ -6022,17 +6039,6 @@ static void sec_handle_cable_insertion_removal(struct qpnp_chg_chip *chip)
 		qpnp_chg_iusbmax_set(chip, 0);
 		chip->usb_psy->set_property(chip->usb_psy, POWER_SUPPLY_PROP_ONLINE, &value);
 		break;
-	case CABLE_TYPE_INCOMPATIBLE:
-		value.intval = 0;
-		chip->usb_psy->set_property(chip->usb_psy, POWER_SUPPLY_PROP_ONLINE, &value);
-		pr_err("INCOMPATIBLE charger inserted, batt_present(%d)\n",
-		chip->batt_present);
-
-		qpnp_chg_iusbmax_set(chip, chg_imax_ma);
-		qpnp_chg_ibatmax_set(chip,chg_imax_ma);
-		sec_pm8226_stop_charging(chip);
-		chip->batt_status = POWER_SUPPLY_STATUS_NOT_CHARGING;
-		break;
 	case CABLE_TYPE_USB:
 		pr_err("USB is inserted, chg_current 500, batt_present(%d)\n",
 				chip->batt_present);
@@ -6059,6 +6065,8 @@ static void sec_handle_cable_insertion_removal(struct qpnp_chg_chip *chip)
 		}
 		break;
 
+	case CABLE_TYPE_INCOMPATIBLE:
+			pr_err("INCOMPATIBLE ");
 	case CABLE_TYPE_AC:
 			pr_err("TA is inserted, batt_present(%d)\n"
 					,chip->batt_present);
@@ -6239,6 +6247,7 @@ static void sec_pm8226_start_charging(struct qpnp_chg_chip *chip)
         case CABLE_TYPE_MISC:
         case CABLE_TYPE_UARTOFF:
         case CABLE_TYPE_AUDIO_DOCK:
+		case CABLE_TYPE_INCOMPATIBLE:
 		/* Set charge current based on cable type */
 		//usb_target_ma = 500; temporraliy done in cable_insertion func
 		/* set CHG_EN bit to enable charging*/
@@ -6314,8 +6323,10 @@ static void sec_bat_monitor(struct work_struct *work)
 #ifdef SEC_BTM_TEST
 	static u8 btm_count;
 #endif
+	#if !defined(CONFIG_MACH_MS01_KOR_LTE)
 	int rc;
 	u8 buck_sts = 0;
+	#endif
 
 	if (chip->is_in_sleep)
 		chip->is_in_sleep = false;
@@ -6343,7 +6354,8 @@ static void sec_bat_monitor(struct work_struct *work)
 		chip->cable_type == CABLE_TYPE_CDP ||
 		chip->cable_type == CABLE_TYPE_MISC ||
 		chip->cable_type == CABLE_TYPE_UARTOFF ||
-		chip->cable_type == CABLE_TYPE_AUDIO_DOCK) &&
+		chip->cable_type == CABLE_TYPE_AUDIO_DOCK ||
+		chip->cable_type == CABLE_TYPE_INCOMPATIBLE) &&
 		chip->charging_disabled &&
 		!chip->is_recharging &&
 		(chip->batt_health == POWER_SUPPLY_HEALTH_GOOD)) {
@@ -6415,6 +6427,7 @@ static void sec_bat_monitor(struct work_struct *work)
 
 	if (chip->batt_status == POWER_SUPPLY_STATUS_CHARGING || chip->is_recharging) {
 		if ( qpnp_chg_is_usb_chg_plugged_in(chip) && !chip->charging_disabled ) {
+			#if !defined(CONFIG_MACH_MS01_KOR_LTE)
 			rc = qpnp_chg_read(chip, &buck_sts, INT_RT_STS(chip->buck_base), 1);
 			if (!rc) {
 				if (buck_sts & VDD_LOOP_IRQ) {
@@ -6423,6 +6436,7 @@ static void sec_bat_monitor(struct work_struct *work)
 			} else {
 				pr_err("failed to read buck rc=%d\n", rc);
 			}
+			#endif
 			if(chip->ui_full_chg) { /* second phase charging */
 				pr_err("second phase charging: ui_full_chg(%d) \n",chip->ui_full_chg);
 
@@ -6600,7 +6614,8 @@ static int sec_ac_get_property(struct power_supply *psy,
 	else if (chip->cable_type == CABLE_TYPE_AC ||
 			chip->cable_type == CABLE_TYPE_MISC ||
 			chip->cable_type == CABLE_TYPE_UARTOFF ||
-			chip->cable_type == CABLE_TYPE_AUDIO_DOCK) {
+			chip->cable_type == CABLE_TYPE_AUDIO_DOCK ||
+			chip->cable_type == CABLE_TYPE_INCOMPATIBLE) {
 		val->intval = 1;
 	} else {
 		val->intval = 0;
@@ -7105,7 +7120,7 @@ qpnp_charger_probe(struct spmi_device *spmi)
 	chip->ui_full_cnt = 0;
 	chip->siop_level = 100;
 	chip->batt_present = qpnp_chg_is_batt_present(chip);
-#if defined(CONFIG_MACH_KANAS3G_CTC) || defined(CONFIG_MACH_MS01_EUR_3G) || defined(CONFIG_MACH_MS01_EUR_LTE)
+#ifdef CONFIG_MACH_KANAS3G_CTC
     /*CF open power on state soc use calculate_soc_from_voltage to calculate soc,
       voltage change fast, need short the update time to avoid soc jump*/
 	if(!chip->batt_present)

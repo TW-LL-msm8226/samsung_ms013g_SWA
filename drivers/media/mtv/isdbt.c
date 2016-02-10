@@ -25,14 +25,17 @@
 #include <linux/input.h>
 #include <linux/pm_qos.h>
 #include <linux/of_gpio.h>
+#include "isdbt.h"
+
 #if defined(CONFIG_MTV_QUALCOMM)
 #include <mach/gpiomux.h>
-#include <mach/cpuidle.h>
-#endif
-#if defined(CONFIG_MTV_EXYNOS)
+#include <soc/qcom/pm.h>
+#elif defined(CONFIG_MTV_EXYNOS)
 #include <plat/gpio-cfg.h>
+#elif defined(CONFIG_MTV_SPREADTRUM)
+#include <mach/pinmap.h>
 #endif
-#include "isdbt.h"
+
 #if defined(ISDBT_USE_PMIC)
 #include <linux/regulator/machine.h>
 #endif
@@ -48,14 +51,12 @@ static struct wake_lock isdbt_wlock;
 static struct isdbt_drv_func *isdbtdrv_func = NULL;
 static struct class *isdbt_class = NULL;
 static struct isdbt_dt_platform_data *dt_pdata;
+static bool isdbt_pwr_on = false;
 
 #if defined(CONFIG_SEC_GPIO_SETTINGS)
 static struct device  *isdbt_device = NULL;
-#endif
-
-static bool isdbt_pwr_on = false;
-
-#if !defined(CONFIG_SEC_GPIO_SETTINGS) && defined(CONFIG_MTV_QUALCOMM)
+#else
+#if defined(CONFIG_MTV_QUALCOMM)
 static struct gpiomux_setting spi_active_config = {
 	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_2MA,
@@ -68,6 +69,27 @@ static struct gpiomux_setting spi_suspend_config = {
 	.pull = GPIOMUX_PULL_DOWN,
 	.dir = GPIOMUX_IN,
 };
+
+#elif defined(CONFIG_MTV_SPREADTRUM)
+
+#define SPI_PIN_FUNC_MASK  (0x3<<4)
+#define SPI_PIN_FUNC_DEF   (0x0<<4)
+#define SPI_PIN_FUNC_GPIO  (0x3<<4)
+
+struct spi_pin_desc {
+	const char   *name;
+	unsigned int pin_func;
+	unsigned int reg;
+	unsigned int gpio;
+};
+
+static struct spi_pin_desc spi_pin_group[] = {
+	{"SPI_MISO", SPI_PIN_FUNC_DEF, REG_PIN_SPI0_DI + CTL_PIN_BASE, 69},
+	{"SPI_CLK", SPI_PIN_FUNC_DEF, REG_PIN_SPI0_CLK + CTL_PIN_BASE, 70},
+	{"SPI_MOSI", SPI_PIN_FUNC_DEF, REG_PIN_SPI0_DO + CTL_PIN_BASE, 68},
+	{"SPI_CS0", SPI_PIN_FUNC_GPIO, REG_PIN_SPI0_CSN + CTL_PIN_BASE, 67}
+};
+#endif
 #endif
 
 #if defined(ISDBT_USE_PMIC)
@@ -120,47 +142,8 @@ static void isdbt_control_pmic_pwr(bool on)
 }
 #endif
 
-static void isdbt_set_config_poweron(void)
+static void isdbt_gpio_set_output(void)
 {
-#if defined(CONFIG_SEC_GPIO_SETTINGS)
-	struct pinctrl *isdbt_pinctrl;
-
-	/* Get pinctrl if target uses pinctrl */
-	isdbt_pinctrl = devm_pinctrl_get_select(isdbt_device, "isdbt_gpio_active");
-	if (IS_ERR(isdbt_pinctrl)) {
-		DPRINTK("Target does not use pinctrl\n");
-		isdbt_pinctrl = NULL;
-	}
-#else
-#if defined(CONFIG_MTV_QUALCOMM)
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_mosi, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
-		DPRINTK("spi_mosi Port request error!!!\n");
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_miso, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
-		DPRINTK("spi_miso Port request error!!!\n");
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_cs, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
-		DPRINTK("spi_cs Port request error!!!\n");
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_clk, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
-		DPRINTK("spi_clk Port request error!!!\n");
-
-#elif defined(CONFIG_MTV_BROADCOM)
-
-	struct pin_config SdioPinCfgs;
-
-	SdioPinCfgs.name = dt_pdata->isdbt_irq;
-	pinmux_get_pin_config(&SdioPinCfgs);
-	SdioPinCfgs.reg.b.slew_rate_ctrl = 0;
-	pinmux_set_pin_config(&SdioPinCfgs);
-
-	SdioPinCfgs.name = dt_pdata->isdbt_rst;
-	pinmux_get_pin_config(&SdioPinCfgs);
-	SdioPinCfgs.reg.b.input_dis = 1;
-	SdioPinCfgs.reg.b.drv_sth = 0;
-	SdioPinCfgs.func = PF_GPIO00;
-	SdioPinCfgs.reg.b.sel = 4;	
-	pinmux_set_pin_config(&SdioPinCfgs);
-#endif
-#endif
-
 	gpio_direction_output(dt_pdata->isdbt_pwr_en, 0);
 	if (gpio_is_valid(dt_pdata->isdbt_pwr_en2))
 		gpio_direction_output(dt_pdata->isdbt_pwr_en2, 0);
@@ -169,47 +152,111 @@ static void isdbt_set_config_poweron(void)
 	gpio_direction_input(dt_pdata->isdbt_irq);
 }
 
-static void isdbt_set_config_poweroff(void)
+static void isdbt_gpio_set_input(void)
 {
-#if defined(CONFIG_SEC_GPIO_SETTINGS)
-	struct pinctrl *isdbt_pinctrl;
-#endif
-
 	gpio_direction_input(dt_pdata->isdbt_pwr_en);
 	if (gpio_is_valid(dt_pdata->isdbt_pwr_en2))
 		gpio_direction_input(dt_pdata->isdbt_pwr_en2);
 	if (gpio_is_valid(dt_pdata->isdbt_rst))
 		gpio_direction_input(dt_pdata->isdbt_rst);
+}
 
+static void isdbt_gpio_config(bool poweron)
+{
 #if defined(CONFIG_SEC_GPIO_SETTINGS)
+	struct pinctrl *isdbt_pinctrl;
+
 	/* Get pinctrl if target uses pinctrl */
-	isdbt_pinctrl = devm_pinctrl_get_select(isdbt_device, "isdbt_gpio_suspend");
+	isdbt_pinctrl = (poweron ? devm_pinctrl_get_select(isdbt_device, "isdbt_gpio_active") : devm_pinctrl_get_select(isdbt_device, "isdbt_gpio_suspend"));
 	if (IS_ERR(isdbt_pinctrl)) {
 		DPRINTK("Target does not use pinctrl\n");
 		isdbt_pinctrl = NULL;
 	}
 #else
 #if defined(CONFIG_MTV_QUALCOMM)
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_mosi, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
-		DPRINTK("spi_mosi Port request error!!!\n");
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_miso, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
-		DPRINTK("spi_miso Port request error!!!\n");
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_cs, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
-		DPRINTK("spi_cs Port request error!!!\n");
-	if(msm_gpiomux_write(dt_pdata->isdbt_spi_clk, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
-		DPRINTK("spi_clk Port request error!!!\n");
+
+	if(poweron) {
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_mosi, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
+			DPRINTK("spi_mosi Port request error!!!\n");
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_miso, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
+			DPRINTK("spi_miso Port request error!!!\n");
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_cs, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
+			DPRINTK("spi_cs Port request error!!!\n");
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_clk, GPIOMUX_ACTIVE, &spi_active_config, NULL) < 0)
+			DPRINTK("spi_clk Port request error!!!\n");
+	} else {
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_mosi, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
+			DPRINTK("spi_mosi Port request error!!!\n");
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_miso, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
+			DPRINTK("spi_miso Port request error!!!\n");
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_cs, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
+			DPRINTK("spi_cs Port request error!!!\n");
+		if(msm_gpiomux_write(dt_pdata->isdbt_spi_clk, GPIOMUX_SUSPENDED, &spi_suspend_config, NULL) < 0)
+			DPRINTK("spi_clk Port request error!!!\n");
+	}
 
 #elif defined(CONFIG_MTV_BROADCOM)
-	// broadcom
+
+	if(poweron) {
+		struct pin_config SdioPinCfgs;
+		
+		SdioPinCfgs.name = dt_pdata->isdbt_irq;
+		pinmux_get_pin_config(&SdioPinCfgs);
+		SdioPinCfgs.reg.b.slew_rate_ctrl = 0;
+		pinmux_set_pin_config(&SdioPinCfgs);
+
+		SdioPinCfgs.name = dt_pdata->isdbt_rst;
+		pinmux_get_pin_config(&SdioPinCfgs);
+		SdioPinCfgs.reg.b.input_dis = 1;
+		SdioPinCfgs.reg.b.drv_sth = 0;
+		SdioPinCfgs.func = PF_GPIO00;
+		SdioPinCfgs.reg.b.sel = 4;	
+		pinmux_set_pin_config(&SdioPinCfgs);
+	}
+
+#elif defined(CONFIG_MTV_SPREADTRUM)
+
+	if(poweron) {
+		unsigned int reg, gpio, pin_func, value;
+		unsigned long flags;
+		int i, regs_count;
+
+		regs_count = sizeof(spi_pin_group)/sizeof(struct spi_pin_desc);
+
+		for (i = 0; i < regs_count; i++) {
+			pin_func = spi_pin_group[i].pin_func;
+			gpio = spi_pin_group[i].gpio;
+
+			if (pin_func == SPI_PIN_FUNC_DEF) {
+				reg = spi_pin_group[i].reg;
+				/* free the gpios that have request */
+	//			gpio_free(gpio);
+				local_irq_save(flags);
+				/* config pin default spi function */
+				value = ((__raw_readl(reg) & ~SPI_PIN_FUNC_MASK) | SPI_PIN_FUNC_DEF);
+				__raw_writel(value, reg);
+				local_irq_restore(flags);
+			}
+			else {
+				/* CS should config output */
+				gpio_direction_output(gpio, 1);
+			}
+		}
+	}
 #endif
 #endif
+
+	if(poweron)
+		isdbt_gpio_set_output();
+	else
+		isdbt_gpio_set_input();
 }
 
 static void isdbt_gpio_on(void)
 {
 	DPRINTK("isdbt_gpio_on\n");
 
-	isdbt_set_config_poweron();
+//	isdbt_gpio_config(true);
 #if defined(ISDBT_USE_PMIC)
 	isdbt_control_pmic_pwr(true);
 #endif
@@ -217,14 +264,14 @@ static void isdbt_gpio_on(void)
 	if (gpio_is_valid(dt_pdata->isdbt_pwr_en2))
 	{
 		gpio_set_value(dt_pdata->isdbt_pwr_en2, 1);
-		usleep_range(10000, 10000);
+		usleep_range(1000, 1000);
 	}
 	gpio_set_value(dt_pdata->isdbt_pwr_en, 1);
-	usleep_range(10000, 10000);
+	usleep_range(1000, 1000);
 
 	if (gpio_is_valid(dt_pdata->isdbt_rst)) {
 		gpio_set_value(dt_pdata->isdbt_rst, 1);
-		usleep_range(10000, 10000);
+		usleep_range(1000, 1000);
 	}
 }
 
@@ -232,7 +279,7 @@ static void isdbt_gpio_off(void)
 {
 	DPRINTK("isdbt_gpio_off\n");
 
-	isdbt_set_config_poweroff();
+//	isdbt_gpio_config(false);
 #if defined(ISDBT_USE_PMIC)
 	isdbt_control_pmic_pwr(false);
 #endif
@@ -241,7 +288,7 @@ static void isdbt_gpio_off(void)
 	usleep_range(1000, 1000);
 	if (gpio_is_valid(dt_pdata->isdbt_pwr_en2)) {
 		gpio_set_value(dt_pdata->isdbt_pwr_en2, 0);
-		usleep_range(10000, 10000);
+		usleep_range(1000, 1000);
 	}
 	if (gpio_is_valid(dt_pdata->isdbt_rst)) {
 		gpio_set_value(dt_pdata->isdbt_rst, 0);
@@ -372,6 +419,8 @@ static int isdbt_release(struct inode *inode, struct file *filp)
 		ret = (*isdbtdrv_func->release)(inode, filp);
 
 	isdbt_power_off();
+	isdbt_gpio_config(false);
+	isdbt_control_irq(false);
 
 	return 0;
 }
@@ -380,6 +429,9 @@ static int isdbt_open(struct inode *inode, struct file *filp)
 {
 	int ret = -EFAULT;
 	DPRINTK("isdbt_open\n");
+
+	isdbt_gpio_config(true);
+	isdbt_control_irq(true);
 
 	if (isdbtdrv_func->open)
 		ret = (*isdbtdrv_func->open)(inode, filp);
@@ -409,49 +461,49 @@ static bool get_isdbt_dt_pdata(struct device *dev)
 
 	if(dev->of_node)
 	{
-	dt_pdata->isdbt_pwr_en = of_get_named_gpio(dev->of_node, "isdbt_pwr_en", 0);
-	if (dt_pdata->isdbt_pwr_en < 0) {
-		DPRINTK("can not find the isdbt_pwr_en\n");
-		goto alloc_err;
-	}
-	dt_pdata->isdbt_pwr_en2 = of_get_named_gpio(dev->of_node, "isdbt_pwr_en2", 0);
-	if (dt_pdata->isdbt_pwr_en2 < 0) {
-		DPRINTK("can not find the isdbt_pwr_en2\n");
-		//goto alloc_err;
-	}
-	dt_pdata->isdbt_rst = of_get_named_gpio(dev->of_node, "isdbt_rst", 0);
-	if (dt_pdata->isdbt_rst < 0) {
-		DPRINTK("can not find the isdbt_rst\n");
-		//goto alloc_err;
-	}
-	dt_pdata->isdbt_irq = of_get_named_gpio(dev->of_node, "isdbt_irq", 0);
-	if (dt_pdata->isdbt_irq < 0) {
-		DPRINTK("can not find the isdbt_irq\n");
-		goto alloc_err;
-	}
-	dt_pdata->isdbt_spi_mosi = of_get_named_gpio(dev->of_node, "isdbt_spi_mosi", 0);
-	if (dt_pdata->isdbt_spi_mosi < 0) {
-		DPRINTK("can not find the isdbt_spi_mosi\n");
-		goto alloc_err;
-	}
-	dt_pdata->isdbt_spi_miso = of_get_named_gpio(dev->of_node, "isdbt_spi_miso", 0);
-	if (dt_pdata->isdbt_spi_miso < 0) {
-		DPRINTK("can not find the isdbt_spi_miso\n");
-		goto alloc_err;
-	}
-	dt_pdata->isdbt_spi_cs = of_get_named_gpio(dev->of_node, "isdbt_spi_cs", 0);
-	if (dt_pdata->isdbt_spi_cs < 0) {
-		DPRINTK("can not find the isdbt_spi_cs\n");
-		goto alloc_err;
-	}
-	dt_pdata->isdbt_spi_clk = of_get_named_gpio(dev->of_node, "isdbt_spi_clk", 0);
-	if (dt_pdata->isdbt_spi_clk < 0) {
-		DPRINTK("can not find the isdbt_spi_clk\n");
-		goto alloc_err;
-	}
+		dt_pdata->isdbt_pwr_en = of_get_named_gpio(dev->of_node, "isdbt_pwr_en", 0);
+		if (dt_pdata->isdbt_pwr_en < 0) {
+			DPRINTK("can not find the isdbt_pwr_en\n");
+			goto alloc_err;
+		}
+		dt_pdata->isdbt_pwr_en2 = of_get_named_gpio(dev->of_node, "isdbt_pwr_en2", 0);
+		if (dt_pdata->isdbt_pwr_en2 < 0) {
+			DPRINTK("can not find the isdbt_pwr_en2\n");
+			//goto alloc_err;
+		}
+		dt_pdata->isdbt_rst = of_get_named_gpio(dev->of_node, "isdbt_rst", 0);
+		if (dt_pdata->isdbt_rst < 0) {
+			DPRINTK("can not find the isdbt_rst\n");
+			//goto alloc_err;
+		}
+		dt_pdata->isdbt_irq = of_get_named_gpio(dev->of_node, "isdbt_irq", 0);
+		if (dt_pdata->isdbt_irq < 0) {
+			DPRINTK("can not find the isdbt_irq\n");
+			goto alloc_err;
+		}
+		dt_pdata->isdbt_spi_mosi = of_get_named_gpio(dev->of_node, "isdbt_spi_mosi", 0);
+		if (dt_pdata->isdbt_spi_mosi < 0) {
+			DPRINTK("can not find the isdbt_spi_mosi\n");
+			goto alloc_err;
+		}
+		dt_pdata->isdbt_spi_miso = of_get_named_gpio(dev->of_node, "isdbt_spi_miso", 0);
+		if (dt_pdata->isdbt_spi_miso < 0) {
+			DPRINTK("can not find the isdbt_spi_miso\n");
+			goto alloc_err;
+		}
+		dt_pdata->isdbt_spi_cs = of_get_named_gpio(dev->of_node, "isdbt_spi_cs", 0);
+		if (dt_pdata->isdbt_spi_cs < 0) {
+			DPRINTK("can not find the isdbt_spi_cs\n");
+			goto alloc_err;
+		}
+		dt_pdata->isdbt_spi_clk = of_get_named_gpio(dev->of_node, "isdbt_spi_clk", 0);
+		if (dt_pdata->isdbt_spi_clk < 0) {
+			DPRINTK("can not find the isdbt_spi_clk\n");
+			goto alloc_err;
+		}
 	}
 	else {
-	DPRINTK("could find device tree\n");
+		DPRINTK("could find device tree\n");
 		dt_pdata->isdbt_pwr_en = convert_gpio(ISDBT_PWR_EN);
 		dt_pdata->isdbt_pwr_en2 = convert_gpio(ISDBT_PWR_EN2);
 		dt_pdata->isdbt_rst = convert_gpio(ISDBT_RST);
@@ -486,17 +538,23 @@ static int isdbt_gpio_request(void)
 	}
 
 	/* gpio for isdbt_pwr_en2 */
-	err = gpio_request(dt_pdata->isdbt_pwr_en2, "isdbt_pwr_en2");
-	if (err) {
-		DPRINTK("isdbt_pwr_en2: gpio request failed\n");
-		goto out;
+	if (gpio_is_valid(dt_pdata->isdbt_pwr_en2))
+	{
+		err = gpio_request(dt_pdata->isdbt_pwr_en2, "isdbt_pwr_en2");
+		if (err) {
+			DPRINTK("isdbt_pwr_en2: gpio request failed\n");
+			goto out;
+		}
 	}
 
 	/* gpio for isdbt_rst */
-	err = gpio_request(dt_pdata->isdbt_rst, "isdbt_rst");
-	if (err) {
-		DPRINTK("isdbt_rst: gpio request failed\n");
-		goto out;
+	if (gpio_is_valid(dt_pdata->isdbt_rst))
+	{
+		err = gpio_request(dt_pdata->isdbt_rst, "isdbt_rst");
+		if (err) {
+			DPRINTK("isdbt_rst: gpio request failed\n");
+			goto out;
+		}
 	}
 
 	/* gpio for isdbt_irq */
@@ -532,9 +590,6 @@ static int isdbt_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	int result = 0;
-#if defined(CONFIG_SEC_GPIO_SETTINGS)
-	struct pinctrl *isdbt_pinctrl;
-#endif
 
 	DPRINTK("isdbt_probe\n");
 
@@ -543,26 +598,14 @@ static int isdbt_probe(struct platform_device *pdev)
 		DPRINTK("isdbt_dt_pdata is NULL.\n");
 		return -ENODEV;
 	}
-	
+
 	result = isdbt_gpio_request();
 	if (result) {
 		DPRINTK("can't request gpio. please check the isdbt_gpio_request()");
 		return -ENODEV;
 	}
 
-#if defined(CONFIG_SEC_GPIO_SETTINGS)
-	isdbt_device = &pdev->dev;
-
-	/* Get pinctrl if target uses pinctrl */
-	isdbt_pinctrl = devm_pinctrl_get_select(isdbt_device, "isdbt_gpio_suspend");
-	if (IS_ERR(isdbt_pinctrl)) {
-		if (PTR_ERR(isdbt_pinctrl) == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-
-		DPRINTK("Target does not use pinctrl\n");
-		isdbt_pinctrl = NULL;
-	}
-#endif
+	isdbt_gpio_config(false);
 
 	isdbt_spi_init();
 
@@ -605,6 +648,8 @@ static int isdbt_remove(struct platform_device *pdev)
 
 	if (isdbtdrv_func->remove)
 		ret = isdbtdrv_func->remove();
+
+//	isdbt_gpio_config(false);
 
 	return 0;
 }

@@ -27,12 +27,6 @@
 #include <linux/kconfig.h>
 #include <linux/device.h>
 
-#if defined(CONFIG_MUIC_MAX77804K_SUPPORT_HMT_DETECTION)
-#define SUPPORTED_CABLE_MAX 28
-#else
-#define SUPPORTED_CABLE_MAX 27
-#endif
-#define CABLE_NAME_MAX		SUPPORTED_CABLE_MAX
 #define EXTCON_DEV_NAME			"extcon-muic"
 /*
  * The standard cable name is to help support general notifier
@@ -56,14 +50,20 @@ enum extcon_cable_name {
 	EXTCON_USB = 0,
 	EXTCON_USB_HOST,
 	EXTCON_USB_HOST_5V,
+#if defined(CONFIG_MUIC_SUPPORT_HV_CHARGER)
+	EXTCON_HV_PREPARE,
+	EXTCON_HV_TA,			/* High Voltage Charger(9V) */
+	EXTCON_HV_TA_ERR,		/* Out of range HV Charger(5~9V) */
+#endif
 	EXTCON_TA, /* Travel Adaptor */
+	EXTCON_UNDEFINED_CHARGER,
 	EXTCON_CEA936_CHG,	/* CEA936 A/B USB cable, Only for charging. */
-	EXTCON_FAST_CHARGER,
-	EXTCON_SLOW_CHARGER,
 	EXTCON_CHARGE_DOWNSTREAM, /* Charging an external device */
+#if defined (CONFIG_MUIC_DET_JACK)
+	EXTCON_EARJACK,
+#endif
 	EXTCON_MHL,
 	EXTCON_MHL_VB,
-	EXTCON_LINE_OUT,
 	EXTCON_DESKDOCK,
 	EXTCON_DESKDOCK_VB,
 	EXTCON_CARDOCK,
@@ -72,6 +72,9 @@ enum extcon_cable_name {
 	EXTCON_SMARTDOCK,
 	EXTCON_SMARTDOCK_TA,
 	EXTCON_SMARTDOCK_USB,
+#if defined(CONFIG_MUIC_SUPPORT_MULTIMEDIA_DOCK)
+	EXTCON_MULTIMEDIADOCK,
+#endif
 	EXTCON_JIG_UARTOFF,
 	EXTCON_JIG_UARTOFF_VB,
 	EXTCON_JIG_UARTON,
@@ -82,9 +85,20 @@ enum extcon_cable_name {
 #if defined(CONFIG_MUIC_MAX77804K_SUPPORT_HMT_DETECTION)
 	EXTCON_HMT,
 #endif
+#if defined(CONFIG_MUIC_MAX77804K_SUPPORT_LANHUB)
+	EXTCON_LANHUB,
+	EXTCON_LANHUB_TA,
+#endif
+#if defined(CONFIG_MUIC_SUPPORT_HV_CHARGER)
+	EXTCON_HV_TA_1A,			/* UNDEFINE but charging */
+#endif
 	EXTCON_NONE,
 };
-extern const char *extcon_cable_name[];
+
+#define SUPPORTED_CABLE_MAX (EXTCON_NONE + 1)
+#define CABLE_NAME_MAX		SUPPORTED_CABLE_MAX
+
+extern const char *extcon_cable_name[CABLE_NAME_MAX + 1];
 
 struct extcon_cable;
 

@@ -200,6 +200,7 @@ static unsigned long highmem_dirtyable_memory(unsigned long total)
 	 */
 	if ((long)x < 0)
 		x = 0;
+
 	/*
 	 * Make sure that the number of highmem pages is never larger
 	 * than the number of the total dirtyable memory. This can only

@@ -735,21 +735,11 @@ struct sec_therm_platform_data sec_therm_pdata = {
 	.no_polling     = 1,
 };
 
-#if defined(CONFIG_MACH_MS01) || defined(CONFIG_MACH_CRATERVE) || defined(CONFIG_MACH_CT01) || \
-	defined(CONFIG_MACH_S3VE) || defined(CONFIG_MACH_MS01_LTE) || \
-	defined(CONFIG_MACH_CS03_SGLTE) || defined(CONFIG_MACH_CRATERQ) || defined(CONFIG_MACH_MS01_LTE_KOR) || \
-	defined(CONFIG_MACH_MS01_CHN_CMCC_3G) || defined(CONFIG_MACH_MS01_CHN_CTC)|| \
-	defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) || defined(CONFIG_MACH_S3VE3G_EUR) || \
-	defined(CONFIG_SEC_AFYON_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) || defined(CONFIG_SEC_BERLUTI_PROJECT) || \
-	defined(CONFIG_SEC_GNOTE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_DEGAS_PROJECT) || \
-	defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) || defined(CONFIG_MACH_VICTOR3GDSDTV_LTN) || \
-	defined(CONFIG_MACH_MS01_EUR_3G) || defined(CONFIG_MACH_MS01_EUR_LTE)
 struct platform_device sec_device_thermistor = {
 	.name = "sec-thermistor",
 	.id = -1,
 	.dev.platform_data = &sec_therm_pdata,
 };
-#endif
 
 struct sec_therm_platform_data * fill_therm_pdata(struct platform_device *pdev)
 {

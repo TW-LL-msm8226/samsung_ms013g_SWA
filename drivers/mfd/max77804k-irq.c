@@ -28,6 +28,12 @@
 #include <linux/mfd/max77804k.h>
 #include <linux/mfd/max77804k-private.h>
 
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+struct delayed_work muic_restore_work;
+struct max77804k_dev *max77804k_backup;
+extern int muic_reset_pin;
+#endif
+
 static const u8 max77804k_mask_reg[] = {
 	[LED_INT] = MAX77804K_LED_REG_FLASH_INT_MASK,
 	[TOPSYS_INT] = MAX77804K_PMIC_REG_TOPSYS_INT_MASK,
@@ -161,6 +167,23 @@ static void max77804k_irq_unmask(struct irq_data *data)
 		max77804k->irq_masks_cur[irq_data->group] &= ~irq_data->mask;
 }
 
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+static void _max77804k_restore_muic_reg(struct max77804k_dev *max77804k);
+static void max77804k_restore_muic_reg(struct work_struct *work) {
+        _max77804k_restore_muic_reg(max77804k_backup);
+}
+
+static void _max77804k_restore_muic_reg(struct max77804k_dev *max77804k)
+{
+        pr_info("%s:Restore muic irq\n", __func__);
+        max77804k_write_reg(max77804k->muic, MAX77804K_MUIC_REG_INTMASK1, 0x09);
+        max77804k_write_reg(max77804k->muic, MAX77804K_MUIC_REG_INTMASK2, 0x11);
+        max77804k_update_reg(max77804k->muic, MAX77804K_MUIC_REG_CDETCTRL1,
+                                (0x01 << CHGTYPM_SHIFT), CHGTYPM_MASK);
+        max77804k_write_reg(max77804k->muic, MAX77804K_MUIC_REG_CTRL3, 0x20);
+}
+#endif
+
 static struct irq_chip max77804k_irq_chip = {
 	.name			= "max77804k",
 	.irq_bus_lock		= max77804k_irq_lock,
@@ -168,6 +191,19 @@ static struct irq_chip max77804k_irq_chip = {
 	.irq_mask		= max77804k_irq_mask,
 	.irq_unmask		= max77804k_irq_unmask,
 };
+
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+static irqreturn_t max77804k_reset_irq_thread(int irq, void *data)
+{
+        max77804k_backup = data;
+
+        pr_info("%s: MUIC block was reset, restore reg now\n", __func__);
+        cancel_delayed_work_sync(&muic_restore_work);
+        schedule_delayed_work(&muic_restore_work, msecs_to_jiffies(100));
+
+        return IRQ_HANDLED;
+}
+#endif
 
 static irqreturn_t max77804k_irq_thread(int irq, void *data)
 {
@@ -280,6 +316,11 @@ int max77804k_irq_init(struct max77804k_dev *max77804k)
 
 	pr_info("func: %s, irq_gpio: %d, irq_base: %d\n", __func__,
 			max77804k->irq_gpio, max77804k->irq_base);
+
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        INIT_DELAYED_WORK(&muic_restore_work, max77804k_restore_muic_reg);
+#endif
+
 	if (!max77804k->irq_gpio) {
 		dev_warn(max77804k->dev, "No interrupt specified.\n");
 		max77804k->irq_base = 0;
@@ -302,6 +343,21 @@ int max77804k_irq_init(struct max77804k_dev *max77804k)
 	}
 	gpio_direction_input(max77804k->irq_gpio);
 	gpio_free(max77804k->irq_gpio);
+
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        if (muic_reset_pin)
+        {
+                max77804k->irq_reset = gpio_to_irq(max77804k->irq_reset_gpio);
+                ret = gpio_request(max77804k->irq_reset_gpio, "muic_reset_irq");
+                if (ret) {
+                        dev_err(max77804k->dev, "%s: failed requesting gpio %d\n",
+                                __func__, max77804k->irq_reset_gpio);
+                        return ret;
+                }
+                gpio_direction_input(max77804k->irq_reset_gpio);
+                gpio_free(max77804k->irq_reset_gpio);
+        }
+#endif
 
 	/* Mask individual interrupt sources */
 	for (i = 0; i < MAX77804K_IRQ_GROUP_NR; i++) {
@@ -364,6 +420,21 @@ int max77804k_irq_init(struct max77804k_dev *max77804k)
 		return ret;
 	}
 
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        if (muic_reset_pin)
+        {
+                ret = request_threaded_irq(max77804k->irq_reset, NULL, max77804k_reset_irq_thread,
+                                IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+                                "max77804k-reset_irq", max77804k);
+
+                if (ret) {
+                        dev_err(max77804k->dev, "Failed to request IRQ %d: %d\n",
+                                max77804k->irq_reset, ret);
+                        return ret;
+                }
+        }
+#endif
+
 	return 0;
 }
 
@@ -371,4 +442,11 @@ void max77804k_irq_exit(struct max77804k_dev *max77804k)
 {
 	if (max77804k->irq)
 		free_irq(max77804k->irq, max77804k);
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        if (muic_reset_pin)
+        {
+                if (max77804k->irq_reset)
+                        free_irq(max77804k->irq_reset, max77804k);
+        }
+#endif
 }

@@ -26,7 +26,7 @@ static void ssp_late_resume(struct early_suspend *handler);
 #endif
 
 #ifdef CONFIG_SEC_HESTIA_PROJECT
-#define NORMAL_SENSOR_STATE	0x3FF9F
+#define NORMAL_SENSOR_STATE	0x23ff9f
 #else
 #define NORMAL_SENSOR_STATE	0x3FEFF
 #endif
@@ -128,6 +128,9 @@ static void initialize_variable(struct ssp_data *data)
 	defined(CONFIG_SENSORS_SSP_MAX88920)
 	data->ges_device = NULL;
 #endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	data->uv_device = NULL;
+#endif
 	data->voice_device = NULL;
 #if SSP_SEC_DEBUG
 	data->bMcuDumpMode = sec_debug_is_enabled();
@@ -149,10 +152,10 @@ int initialize_mcu(struct ssp_data *data)
 	pr_info("[SSP] MCU device ID = %d, reading ID = %d\n", DEVICE_ID, iRet);
 	if (iRet != DEVICE_ID) {
 		if (iRet < 0) {
-			pr_err("[SSP]: %s - MCU is not working : 0x%x\n",
+			pr_err("[SSP] %s - MCU is not working : 0x%x\n",
 				__func__, iRet);
 		} else {
-			pr_err("[SSP]: %s - MCU identification failed\n",
+			pr_err("[SSP] %s - MCU identification failed\n",
 				__func__);
 			iRet = -ENODEV;
 		}
@@ -161,17 +164,17 @@ int initialize_mcu(struct ssp_data *data)
 
 	iRet = set_sensor_position(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - set_sensor_position failed\n", __func__);
+		pr_err("[SSP] %s - set_sensor_position failed\n", __func__);
 		goto out;
 	}
 
 	iRet = get_fuserom_data(data);
 	if (iRet < 0)
-		pr_err("[SSP]: %s - get_fuserom_data failed\n", __func__);
+		pr_err("[SSP] %s - get_fuserom_data failed\n", __func__);
 
 	data->uSensorState = get_sensor_scanning_info(data);
 	if (data->uSensorState == 0) {
-		pr_err("[SSP]: %s - get_sensor_scanning_info failed\n",
+		pr_err("[SSP] %s - get_sensor_scanning_info failed\n",
 			__func__);
 		iRet = ERROR;
 		goto out;
@@ -191,11 +194,11 @@ static int initialize_irq(struct ssp_data *data)
 	int iRet, iIrq;
 	iIrq = gpio_to_irq(data->mcu_int1);
 
-	pr_info("[SSP]: requesting IRQ %d\n", iIrq);
+	pr_info("[SSP] requesting IRQ %d\n", iIrq);
 	iRet = request_threaded_irq(iIrq, NULL, sensordata_irq_thread_fn,
-				    IRQF_TRIGGER_FALLING|IRQF_ONESHOT, "SSP_Int", data);
+		IRQF_TRIGGER_FALLING|IRQF_ONESHOT, "SSP_Int", data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - request_irq(%d) failed for gpio %d (%d)\n",
+		pr_err("[SSP] %s - request_irq(%d) failed for gpio %d (%d)\n",
 		       __func__, iIrq, iIrq, iRet);
 		goto err_request_irq;
 	}
@@ -220,7 +223,7 @@ static void work_function_firmware_update(struct work_struct *work)
 
 	iRet = forced_to_download_binary(data, KERNEL_BINARY);
 	if (iRet < 0) {
-		ssp_dbg("[SSP]: %s - forced_to_download_binary failed!\n",
+		ssp_dbg("[SSP] %s - forced_to_download_binary failed!\n",
 			__func__);
 		data->uSensorState = 0;
 		return;
@@ -335,12 +338,12 @@ dt_exit:
 	return errorno;
 }
 
-
 static int ssp_probe(struct spi_device *spi_dev)
 {
 	int iRet = 0;
 	struct ssp_data *data;
 	struct ssp_platform_data *pdata;
+
 	pr_info("[SSP] %s\n", __func__);
 
 	if (poweroff_charging == 1 || boot_mode_recovery == 1) {
@@ -351,7 +354,7 @@ static int ssp_probe(struct spi_device *spi_dev)
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (data == NULL) {
-		pr_err("[SSP]: %s - failed to allocate memory for data\n",
+		pr_err("[SSP] %s - failed to allocate memory for data\n",
 			__func__);
 		iRet = -ENOMEM;
 		goto exit;
@@ -360,14 +363,14 @@ static int ssp_probe(struct spi_device *spi_dev)
 	if (spi_dev->dev.of_node) {
 		iRet = ssp_parse_dt(&spi_dev->dev, data);
 		if (iRet) {
-			pr_err("[SSP]: %s - Failed to parse DT\n", __func__);
+			pr_err("[SSP] %s - Failed to parse DT\n", __func__);
 			goto err_setup;
 		}
 		data->ssp_changes = SSP_MCU_L5; /* K330, MPU L5*/
 	} else {
 		pdata = spi_dev->dev.platform_data;
 		if (pdata == NULL) {
-			pr_err("[SSP]: %s - platform_data is null\n", __func__);
+			pr_err("[SSP] %s - platform_data is null\n", __func__);
 			iRet = -ENOMEM;
 			goto err_setup;
 		}
@@ -377,11 +380,6 @@ static int ssp_probe(struct spi_device *spi_dev)
 		data->set_mcu_reset = pdata->set_mcu_reset;
 		data->read_chg = pdata->read_chg;
 
-		/* AP system_rev */
-		if (pdata->check_ap_rev)
-			data->ap_rev = pdata->check_ap_rev();
-		else
-			data->ap_rev = 0;
 		/* For changed devices */
 		if (pdata->check_changes)
 			data->ssp_changes = pdata->check_changes();
@@ -410,6 +408,7 @@ static int ssp_probe(struct spi_device *spi_dev)
 	spi_set_drvdata(spi_dev, data);
 
 #ifdef CONFIG_SENSORS_SSP_SHTC1
+	data->current_temp = -270;
 	mutex_init(&data->cp_temp_adc_lock);
 	mutex_init(&data->bulk_temp_read_lock);
 #endif
@@ -422,7 +421,7 @@ static int ssp_probe(struct spi_device *spi_dev)
 		|| (data->set_mcu_reset == NULL)
 		|| (data->read_chg == NULL))
 		&& (spi_dev->dev.of_node == NULL)) {
-		pr_err("[SSP]: %s - function callback is null\n", __func__);
+		pr_err("[SSP] %s - function callback is null\n", __func__);
 		iRet = -EIO;
 		goto err_reset_null;
 	}
@@ -436,31 +435,31 @@ static int ssp_probe(struct spi_device *spi_dev)
 
 	iRet = initialize_input_dev(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - could not create input device\n", __func__);
+		pr_err("[SSP] %s - could not create input device\n", __func__);
 		goto err_input_register_device;
 	}
 
 	iRet = initialize_debug_timer(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - could not create workqueue\n", __func__);
+		pr_err("[SSP] %s - could not create workqueue\n", __func__);
 		goto err_create_workqueue;
 	}
 
 	iRet = initialize_irq(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - could not create irq\n", __func__);
+		pr_err("[SSP] %s - could not create irq\n", __func__);
 		goto err_setup_irq;
 	}
 
 	iRet = initialize_sysfs(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - could not create sysfs\n", __func__);
+		pr_err("[SSP] %s - could not create sysfs\n", __func__);
 		goto err_sysfs_create;
 	}
 
 	iRet = initialize_event_symlink(data);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - could not create symlink\n", __func__);
+		pr_err("[SSP] %s - could not create symlink\n", __func__);
 		goto err_symlink_create;
 	}
 
@@ -474,6 +473,7 @@ static int ssp_probe(struct spi_device *spi_dev)
 		ssp_sensorhub_remove(data);
 	}
 #endif
+	pr_info("[SSP] %s : ap_rev = %d\n", __func__, data->ap_rev);
 
 	ssp_enable(data, true);
 	/* check boot loader binary */
@@ -484,7 +484,7 @@ static int ssp_probe(struct spi_device *spi_dev)
 		if (iRet == ERROR) {
 			toggle_mcu_reset(data);
 		} else if (iRet < ERROR) {
-			pr_err("[SSP]: %s - initialize_mcu failed\n", __func__);
+			pr_err("[SSP] %s - initialize_mcu failed\n", __func__);
 			goto err_read_reg;
 		}
 	}
@@ -495,13 +495,13 @@ static int ssp_probe(struct spi_device *spi_dev)
 	register_early_suspend(&data->early_suspend);
 #endif
 
-	pr_info("[SSP]: %s - probe success!\n", __func__);
+	pr_info("[SSP] %s - probe success!\n", __func__);
 
 	enable_debug_timer(data);
 
 	iRet = 0;
 	if (data->fw_dl_state == FW_DL_STATE_NEED_TO_SCHEDULE) {
-		pr_info("[SSP]: Firmware update is scheduled\n");
+		pr_info("[SSP] Firmware update is scheduled\n");
 		schedule_delayed_work(&data->work_firmware,
 				msecs_to_jiffies(1000));
 		data->fw_dl_state = FW_DL_STATE_SCHEDULED;
@@ -533,7 +533,7 @@ err_reset_null:
 
 err_setup:
 	kfree(data);
-	pr_err("[SSP]: %s - probe failed!\n", __func__);
+	pr_err("[SSP] %s - probe failed!\n", __func__);
 exit:
 	pr_info("#####################################################\n\n");
 	return iRet;
@@ -557,7 +557,7 @@ static void ssp_shutdown(struct spi_device *spi_dev)
 	disable_debug_timer(data);
 
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_SHUTDOWN, 0))
-		pr_err("[SSP]: %s MSG2SSP_AP_STATUS_SHUTDOWN failed\n",
+		pr_err("[SSP] %s MSG2SSP_AP_STATUS_SHUTDOWN failed\n",
 			__func__);
 
 	ssp_enable(data, false);
@@ -590,7 +590,7 @@ static void ssp_shutdown(struct spi_device *spi_dev)
 
 	toggle_mcu_reset(data);
 /*	gpio_set_value_cansleep(data->rst, 0); */
-	pr_info("[SSP]: %s done\n", __func__);
+	pr_info("[SSP] %s done\n", __func__);
 exit:
 	kfree(data);
 }
@@ -646,7 +646,7 @@ static int ssp_suspend(struct device *dev)
 	disable_debug_timer(data);
 
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_SUSPEND, 0))
-		pr_err("[SSP]: %s MSG2SSP_AP_STATUS_SUSPEND failed\n",
+		pr_err("[SSP] %s MSG2SSP_AP_STATUS_SUSPEND failed\n",
 			__func__);
 	data->bTimeSyncing = false;
 	disable_irq(data->iIrq);
@@ -662,7 +662,7 @@ static int ssp_resume(struct device *dev)
 	enable_debug_timer(data);
 
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_RESUME, 0))
-		pr_err("[SSP]: %s MSG2SSP_AP_STATUS_RESUME failed\n",
+		pr_err("[SSP] %s MSG2SSP_AP_STATUS_RESUME failed\n",
 			__func__);
 	data->uLastResumeState = MSG2SSP_AP_STATUS_RESUME;
 

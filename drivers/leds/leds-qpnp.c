@@ -1,6 +1,5 @@
-
 /* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- *
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
@@ -137,11 +136,11 @@
 #define FLASH_WATCHDOG_MASK 0x1F
 #define FLASH_RAMP_STEP_27US		0xBF
 
-#define FLASH_HW_SW_STROBE_SEL_MASK 0x04
+#define FLASH_HW_SW_STROBE_SEL_MASK	0x04
 #define FLASH_STROBE_MASK		0xC7
 #define FLASH_LED_0_OUTPUT		0x80
 #define FLASH_LED_1_OUTPUT		0x40
-#define FLASH_TORCH_OUTPUT 0xC0
+#define FLASH_TORCH_OUTPUT		0xC0
 
 #define FLASH_CURRENT_PRGM_MIN		1
 #define FLASH_CURRENT_PRGM_SHIFT	1
@@ -229,12 +228,13 @@
 #define KPDBL_MODULE_DIS		0x00
 #define KPDBL_MODULE_EN_MASK		0x80
 
-#if !defined(CONFIG_SEC_VIENNA_PROJECT) && !defined(CONFIG_SEC_V2_PROJECT) && !defined(CONFIG_SEC_LT03_PROJECT) && !defined(CONFIG_SEC_MONDRIAN_PROJECT) && !defined(CONFIG_SEC_K_PROJECT) && !defined(CONFIG_SEC_N2_PROJECT) && !defined(CONFIG_SEC_PICASSO_PROJECT) && !defined(CONFIG_SEC_KACTIVE_PROJECT)
+
+#if !defined(CONFIG_SEC_VIENNA_PROJECT) && !defined(CONFIG_SEC_V2_PROJECT) && !defined(CONFIG_SEC_LT03_PROJECT) && !defined(CONFIG_SEC_MONDRIAN_PROJECT) && !defined(CONFIG_SEC_K_PROJECT) && !defined(CONFIG_SEC_N2_PROJECT) && !defined(CONFIG_SEC_PICASSO_PROJECT) && !defined(CONFIG_SEC_KACTIVE_PROJECT) && !defined(CONFIG_MACH_KLIMT_LTE_DCM)
 #define SAMSUNG_LED_PATTERN 1
 #endif
 
 #define SAMSUNG_TKEY_LED_BRIGHTNESS  90
-#if defined(CONFIG_SEC_AFYON_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined( CONFIG_SEC_VASTA_PROJECT)
+#if defined(CONFIG_SEC_AFYON_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined( CONFIG_SEC_VASTA_PROJECT) || defined(CONFIG_MACH_MEGA2LTE_KTT)
 #define SAMSUNG_USE_EXTERNAL_CHARGER
 #endif
 
@@ -271,7 +271,7 @@ enum wled_ovp_threshold {
 	WLED_OVP_35V,
 	WLED_OVP_32V,
 	WLED_OVP_29V,
-	WLED_OVP_37V,
+	WLED_OVP_27V,
 };
 
 enum flash_headroom {
@@ -540,6 +540,7 @@ struct qpnp_led_data {
 };
 
 static int num_kpbl_leds_on;
+static DEFINE_MUTEX(flash_lock);
 static struct device *led_dev;
 #ifdef SAMSUNG_LED_PATTERN
 #define RGB_LED_MAX_BRIGHTNESS  255
@@ -1348,9 +1349,12 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 			}
 
 			if (!led->flash_cfg->strobe_type)
-				led->flash_cfg->trigger_flash &= ~FLASH_HW_SW_STROBE_SEL_MASK;
+				led->flash_cfg->trigger_flash &=
+						~FLASH_HW_SW_STROBE_SEL_MASK;
 			else
-				led->flash_cfg->trigger_flash |= FLASH_HW_SW_STROBE_SEL_MASK;
+				led->flash_cfg->trigger_flash |=
+						FLASH_HW_SW_STROBE_SEL_MASK;
+
 			rc = qpnp_led_masked_write(led,
 				FLASH_LED_STROBE_CTRL(led->base),
 				led->flash_cfg->trigger_flash,
@@ -1431,15 +1435,21 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 			usleep(FLASH_RAMP_UP_DELAY_US);
 
 			if (!led->flash_cfg->strobe_type)
-				led->flash_cfg->trigger_flash &= ~FLASH_HW_SW_STROBE_SEL_MASK;
+				led->flash_cfg->trigger_flash &=
+						~FLASH_HW_SW_STROBE_SEL_MASK;
 			else
-				led->flash_cfg->trigger_flash |= FLASH_HW_SW_STROBE_SEL_MASK;
-			rc = qpnp_led_masked_write(led, FLASH_LED_STROBE_CTRL(led->base), led->flash_cfg->trigger_flash, led->flash_cfg->trigger_flash);
-				if (rc) {
-					dev_err(&led->spmi_dev->dev,
-					"LED %d strobe reg write failed(%d)\n",
-					led->id, rc);
-					goto error_flash_set;
+				led->flash_cfg->trigger_flash |=
+						FLASH_HW_SW_STROBE_SEL_MASK;
+
+			rc = qpnp_led_masked_write(led,
+				FLASH_LED_STROBE_CTRL(led->base),
+				led->flash_cfg->trigger_flash,
+				led->flash_cfg->trigger_flash);
+			if (rc) {
+				dev_err(&led->spmi_dev->dev,
+				"LED %d strobe reg write failed(%d)\n",
+				led->id, rc);
+				goto error_flash_set;
 			}
 		}
 	} else {
@@ -1457,7 +1467,6 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 		}
 
 		if (led->flash_cfg->torch_enable) {
-
 			rc = qpnp_led_masked_write(led,
 				FLASH_LED_UNLOCK_SECURE(led->base),
 				FLASH_SECURE_MASK, FLASH_UNLOCK_SECURE);
@@ -1466,6 +1475,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 					"Secure reg write failed(%d)\n", rc);
 				goto error_torch_set;
 			}
+
 			rc = qpnp_led_masked_write(led,
 					FLASH_LED_TORCH(led->base),
 					FLASH_TORCH_MASK,
@@ -1504,7 +1514,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 
 			rc = qpnp_led_masked_write(led,
 				FLASH_ENABLE_CONTROL(led->base),
-#if defined(CONFIG_MACH_VICTORLTE_CTC)
+#if defined(CONFIG_MACH_VICTORLTE_CTC) || defined(CONFIG_SEC_MEGA2_PROJECT) || defined(CONFIG_MACH_VASTALTE_CHN_CMCC_DUOS)
 				led->flash_cfg->enable_module,
 #else
 				led->flash_cfg->enable_module &
@@ -1706,7 +1716,8 @@ static void qpnp_led_set(struct led_classdev *led_cdev,
 
 	if (value > led->cdev.max_brightness)
 		value = led->cdev.max_brightness;
-#if defined(CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_AFYONLTE_CAN) || defined(CONFIG_MACH_MS01_EUR_3G) || defined(CONFIG_MACH_MS01_EUR_LTE)
+#if defined(CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_AFYONLTE_CAN) || defined(CONFIG_MACH_MS01_EUR_3G) \
+	|| defined(CONFIG_MACH_AFYONLTE_MTR) || defined(CONFIG_MACH_MS01_EUR_LTE) || defined(CONFIG_MACH_MS01_KOR_LTE)
 	pr_info("[LED]%s: %s value = %d\n", __func__, led_cdev->name, value);
 	if(strncmp(led_cdev->name, "button-backlight",  16))
 		led->cdev.brightness = value;
@@ -1723,7 +1734,10 @@ static void __qpnp_led_work(struct qpnp_led_data *led,
 {
 	int rc;
 
-	mutex_lock(&led->lock);
+	if (led->id == QPNP_ID_FLASH1_LED0 || led->id == QPNP_ID_FLASH1_LED1)
+		mutex_lock(&flash_lock);
+	else
+		mutex_lock(&led->lock);
 
 	switch (led->id) {
 	case QPNP_ID_WLED:
@@ -1763,7 +1777,10 @@ static void __qpnp_led_work(struct qpnp_led_data *led,
 		dev_err(&led->spmi_dev->dev, "Invalid LED(%d)\n", led->id);
 		break;
 	}
-	mutex_unlock(&led->lock);
+	if (led->id == QPNP_ID_FLASH1_LED0 || led->id == QPNP_ID_FLASH1_LED1)
+		mutex_unlock(&flash_lock);
+	else
+		mutex_unlock(&led->lock);
 
 }
 
@@ -1886,7 +1903,7 @@ static int __devinit qpnp_wled_init(struct qpnp_led_data *led)
 	num_wled_strings = led->wled_cfg->num_strings;
 
 	/* verify ranges */
-	if (led->wled_cfg->ovp_val > WLED_OVP_37V) {
+	if (led->wled_cfg->ovp_val > WLED_OVP_27V) {
 		dev_err(&led->spmi_dev->dev, "Invalid ovp value\n");
 		return -EINVAL;
 	}
@@ -3112,25 +3129,25 @@ static int __devinit qpnp_get_config_flash(struct qpnp_led_data *led,
 
 	if (led->flash_cfg->torch_enable) {
 #ifndef SAMSUNG_USE_EXTERNAL_CHARGER
-	    if (of_find_property(of_get_parent(node), "torch-boost-supply",
-			NULL)) {
-		led->flash_cfg->torch_boost_reg =
-		    regulator_get(&led->spmi_dev->dev,
-			    "torch-boost");
-		if (IS_ERR(led->flash_cfg->torch_boost_reg)) {
-		    rc = PTR_ERR(led->flash_cfg->torch_boost_reg);
-		    dev_err(&led->spmi_dev->dev,
-			    "Torch regulator get failed(%d)\n", rc);
-		    goto error_get_torch_reg;
-		}
+		if (of_find_property(of_get_parent(node), "torch-boost-supply",
+									NULL)) {
+			led->flash_cfg->torch_boost_reg =
+				regulator_get(&led->spmi_dev->dev,
+								"torch-boost");
+			if (IS_ERR(led->flash_cfg->torch_boost_reg)) {
+				rc = PTR_ERR(led->flash_cfg->torch_boost_reg);
+				dev_err(&led->spmi_dev->dev,
+					"Torch regulator get failed(%d)\n", rc);
+				goto error_get_torch_reg;
+			}
 #endif
-		led->flash_cfg->enable_module = FLASH_ENABLE_MODULE;
+			led->flash_cfg->enable_module = FLASH_ENABLE_MODULE;
 #ifndef SAMSUNG_USE_EXTERNAL_CHARGER
-	    } else
+		} else
 #endif
-		led->flash_cfg->enable_module = FLASH_ENABLE_ALL;
-	    led->flash_cfg->trigger_flash = FLASH_TORCH_OUTPUT;
-	    }
+			led->flash_cfg->enable_module = FLASH_ENABLE_ALL;
+		led->flash_cfg->trigger_flash = FLASH_TORCH_OUTPUT;
+	}
 
 	    rc = of_property_read_u32(node, "qcom,current", &val);
 	    if (!rc) {
@@ -4041,7 +4058,9 @@ static int __devinit qpnp_leds_probe(struct spmi_device *spmi)
 			goto fail_id_check;
 		}
 
-		mutex_init(&led->lock);
+		if (led->id != QPNP_ID_FLASH1_LED0 &&
+					led->id != QPNP_ID_FLASH1_LED1)
+			mutex_init(&led->lock);
 		INIT_WORK(&led->work, qpnp_led_work);
 
 		rc =  qpnp_led_initialize(led);
@@ -4156,7 +4175,9 @@ static int __devinit qpnp_leds_probe(struct spmi_device *spmi)
 
 fail_id_check:
 	for (i = 0; i < parsed_leds; i++) {
-		mutex_destroy(&led_array[i].lock);
+		if (led_array[i].id != QPNP_ID_FLASH1_LED0 &&
+				led_array[i].id != QPNP_ID_FLASH1_LED1)
+			mutex_destroy(&led_array[i].lock);
 		led_classdev_unregister(&led_array[i].cdev);
 	}
 
@@ -4168,65 +4189,68 @@ static int __devexit qpnp_leds_remove(struct spmi_device *spmi)
     struct qpnp_led_data *led_array  = dev_get_drvdata(&spmi->dev);
     int i, parsed_leds = led_array->num_leds;
 
-    for (i = 0; i < parsed_leds; i++) {
-	cancel_work_sync(&led_array[i].work);
-	mutex_destroy(&led_array[i].lock);
-	led_classdev_unregister(&led_array[i].cdev);
-	switch (led_array[i].id) {
-	    case QPNP_ID_WLED:
-		break;
-	    case QPNP_ID_FLASH1_LED0:
-	    case QPNP_ID_FLASH1_LED1:
+	for (i = 0; i < parsed_leds; i++) {
+		cancel_work_sync(&led_array[i].work);
+		if (led_array[i].id != QPNP_ID_FLASH1_LED0 &&
+				led_array[i].id != QPNP_ID_FLASH1_LED1)
+			mutex_destroy(&led_array[i].lock);
+
+		led_classdev_unregister(&led_array[i].cdev);
+		switch (led_array[i].id) {
+		case QPNP_ID_WLED:
+			break;
+		case QPNP_ID_FLASH1_LED0:
+		case QPNP_ID_FLASH1_LED1:
 #ifndef SAMSUNG_USE_EXTERNAL_CHARGER
-		if (led_array[i].flash_cfg->flash_reg_get)
-		    regulator_put(led_array[i].flash_cfg-> \
-			    flash_boost_reg);
-		if (led_array[i].flash_cfg->torch_enable)
-		    regulator_put(led_array[i].flash_cfg->\
-			    torch_boost_reg);
+			if (led_array[i].flash_cfg->flash_reg_get)
+				regulator_put(led_array[i].flash_cfg-> \
+							flash_boost_reg);
+			if (led_array[i].flash_cfg->torch_enable)
+				regulator_put(led_array[i].flash_cfg->\
+							torch_boost_reg);
 #endif
-		sysfs_remove_group(&led_array[i].cdev.dev->kobj,
-			&led_attr_group);
-		break;
-	    case QPNP_ID_RGB_RED:
-	    case QPNP_ID_RGB_GREEN:
-	    case QPNP_ID_RGB_BLUE:
-		if (led_array[i].rgb_cfg->pwm_cfg->mode == PWM_MODE)
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &pwm_attr_group);
-		if (led_array[i].rgb_cfg->pwm_cfg->use_blink) {
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &blink_attr_group);
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &lpg_attr_group);
-		} else if (led_array[i].rgb_cfg->pwm_cfg->mode\
-			== LPG_MODE)
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &lpg_attr_group);
-		break;
-	    case QPNP_ID_LED_MPP:
-		if (!led_array[i].mpp_cfg->pwm_cfg)
-		    break;
-		if (led_array[i].mpp_cfg->pwm_cfg->mode == PWM_MODE)
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &pwm_attr_group);
-		if (led_array[i].mpp_cfg->pwm_cfg->use_blink) {
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &blink_attr_group);
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &lpg_attr_group);
-		} else if (led_array[i].mpp_cfg->pwm_cfg->mode\
-			== LPG_MODE)
-		    sysfs_remove_group(&led_array[i].cdev.dev->\
-			    kobj, &lpg_attr_group);
-		break;
-	    default:
-		dev_err(&led_array[i].spmi_dev->dev,
-			"Invalid LED(%d)\n",
-			led_array[i].id);
-		return -EINVAL;
+			sysfs_remove_group(&led_array[i].cdev.dev->kobj,
+							&led_attr_group);
+			break;
+		case QPNP_ID_RGB_RED:
+		case QPNP_ID_RGB_GREEN:
+		case QPNP_ID_RGB_BLUE:
+			if (led_array[i].rgb_cfg->pwm_cfg->mode == PWM_MODE)
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &pwm_attr_group);
+			if (led_array[i].rgb_cfg->pwm_cfg->use_blink) {
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &blink_attr_group);
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &lpg_attr_group);
+			} else if (led_array[i].rgb_cfg->pwm_cfg->mode\
+					== LPG_MODE)
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &lpg_attr_group);
+			break;
+		case QPNP_ID_LED_MPP:
+			if (!led_array[i].mpp_cfg->pwm_cfg)
+				break;
+			if (led_array[i].mpp_cfg->pwm_cfg->mode == PWM_MODE)
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &pwm_attr_group);
+			if (led_array[i].mpp_cfg->pwm_cfg->use_blink) {
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &blink_attr_group);
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &lpg_attr_group);
+			} else if (led_array[i].mpp_cfg->pwm_cfg->mode\
+					== LPG_MODE)
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &lpg_attr_group);
+			break;
+		default:
+			dev_err(&led_array[i].spmi_dev->dev,
+					"Invalid LED(%d)\n",
+					led_array[i].id);
+			return -EINVAL;
+		}
 	}
-    }
 #ifdef SAMSUNG_LED_PATTERN
     mutex_destroy(&leds_mutex_lock);
 #endif

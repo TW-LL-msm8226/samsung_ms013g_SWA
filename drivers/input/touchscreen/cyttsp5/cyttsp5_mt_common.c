@@ -27,9 +27,7 @@
 #define CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_MT_B
 #define CYTTSP5_TOUCHLOG_ENABLE 0
 
-#ifdef SAMSUNG_PALM_MOTION
-#define ONE_FINGER_SIZE_FOR_NORM_TOUCH_REJECT 70
-#endif
+#define FORCE_SATISFY_PALMPAUSE_FOR_LARGEOBJ
 
 #if defined(TSP_BOOSTER)
 #include <linux/cpufreq.h>
@@ -126,17 +124,18 @@ static void set_dvfs_lock(struct cyttsp5_mt_data *md, int32_t on, bool mode)
 #ifdef SAMSUNG_PALM_MOTION
 static void cyttsp5_final_sync(struct input_dev *input, int max_slots,
 		int mt_sync_count, unsigned long *ids,
-		u16 sumsize, bool palm, bool hover)
+		u16 sumsize, bool palm)
 {
 	int t;
 
 	for (t = 0; t < max_slots; t++) {
 		if (test_bit(t, ids)) {
-			if (hover)
-				continue;
 			input_mt_slot(input, t);
-				input_report_abs(input, ABS_MT_SUMSIZE, sumsize);
+			input_report_abs(input, ABS_MT_SUMSIZE, sumsize);
 			input_report_abs(input, ABS_MT_PALM, palm);
+			dev_vdbg(input->dev.parent,
+				"%s:t=%d sumsize=%d palm=%d\n", __func__,
+				t, sumsize, palm);
 			continue;
 		}
 		input_mt_slot(input, t);
@@ -167,13 +166,13 @@ static inline void cyttsp5_input_sync(struct input_dev *input){}
 static void cyttsp5_input_report(struct input_dev *input, int sig,
 		int t, int type)
 {
+	unsigned char tool_type = MT_TOOL_FINGER;
+
 	input_mt_slot(input, t);
 
-	if (type == CY_OBJ_STANDARD_FINGER || type == CY_OBJ_GLOVE
-			|| type == CY_OBJ_HOVER)
-		input_mt_report_slot_state(input, MT_TOOL_FINGER, true);
-	else if (type == CY_OBJ_STYLUS)
-		input_mt_report_slot_state(input, MT_TOOL_PEN, true);
+	if (type == CY_OBJ_STYLUS)
+		tool_type = MT_TOOL_PEN;
+	input_mt_report_slot_state(input, tool_type, true);
 }
 
 static void cyttsp5_report_slot_liftoff(struct cyttsp5_mt_data *md,
@@ -422,6 +421,24 @@ static inline void manage_touch_mode(struct cyttsp5_mt_data *md,
 		dev_dbg(md->dev, "%s: glove switch %d\n", __func__,
 			md->glove_enable);
 	}
+	if (tch->abs[CY_TCH_E] == CY_EV_TOUCHDOWN) {
+		if (
+			 (!md->glove_enable &&
+			  tch->abs[CY_TCH_O] == CY_OBJ_GLOVE
+			 ) ||
+			 (md->glove_enable &&
+			  (tch->abs[CY_TCH_O] == CY_OBJ_STANDARD_FINGER ||
+               tch->abs[CY_TCH_O] == CY_OBJ_STYLUS)
+			 )
+		   ) {
+			md->glove_enable = !md->glove_enable;
+			dev_dbg(md->dev, "%s: ****** glove mode %s\n",
+				__func__, md->glove_enable ? "on " : "off");
+			input_report_switch(md->input,
+				SW_GLOVE, md->glove_enable);
+		}
+	}
+
 }
 
 void cyttsp5_mt_glove_enable(struct device *dev, bool enable)
@@ -456,8 +473,33 @@ static void inline scale_sum_size(struct cyttsp5_mt_data *md,
 
 //	dev_dbg(dev, "%s: sumsize=%d\n", __func__, *sumsize);
 }
-#endif
+#endif//SAMSUNG_PALM_MOTION
 
+#ifdef FORCE_SATISFY_PALMPAUSE_FOR_LARGEOBJ
+static void forceSatisfyPalmPause(struct cyttsp5_mt_data *md,
+		struct cyttsp5_touch *tch, int t)
+{
+	int x, y;
+
+	dev_dbg(md->dev, "%s: \n", __func__);	
+	switch (t) {
+	case 0: x = 10;y = 10; break;
+	case 1: x = 700;y = 10; break;
+	case 2: x = 700;y = 1200; break;
+	case 3: x = 10;y = 1200; break;
+	default: x = 10;y = 10; break;
+	}
+	tch->abs[CY_TCH_T] = t;
+	tch->abs[CY_TCH_X] = x;
+	tch->abs[CY_TCH_Y] = y;
+	tch->abs[CY_TCH_P] = 10;
+	tch->abs[CY_TCH_E] = CY_EV_TOUCHDOWN;
+	tch->abs[CY_TCH_O] = CY_OBJ_STANDARD_FINGER;
+	tch->abs[CY_TCH_MAJ] = 30;
+	tch->abs[CY_TCH_MIN] = 30;
+	tch->abs[CY_TCH_OR] = 0;
+}
+#endif//FORCE_SATISFY_PALMPAUSE_FOR_LARGEOBJ
 static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 		struct cyttsp5_touch *tch, int num_cur_tch)
 {
@@ -481,6 +523,11 @@ static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 	memset(tch->abs, 0, sizeof(tch->abs));
 
 	for (i = 0; i < num_cur_tch; i++) {
+#ifdef FORCE_SATISFY_PALMPAUSE_FOR_LARGEOBJ
+		if (md->largeobj)
+			forceSatisfyPalmPause(md, tch, i);
+		else
+#endif
 		cyttsp5_get_touch(md, tch, si->xy_data +
 			(i * si->desc.tch_record_size));
 
@@ -526,8 +573,15 @@ static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 			if (tch->abs[CY_TCH_E] == CY_EV_LIFTOFF)
 				goto cyttsp5_get_mt_touches_pr_tch;
 
+#ifdef SAMSUNG_TOUCH_MODE
+			cyttsp5_input_report(md->input, sig, t,
+				((tch->abs[CY_TCH_O] == CY_OBJ_STYLUS)
+				 && !md->stylus_enable) ? CY_OBJ_STANDARD_FINGER :
+				 tch->abs[CY_TCH_O]);
+#else
 			cyttsp5_input_report(md->input, sig,
 						t, tch->abs[CY_TCH_O]);
+#endif
 			__set_bit(t, ids);
 		}
 #if defined(TSP_BOOSTER)
@@ -581,11 +635,14 @@ cyttsp5_get_mt_touches_pr_tch:
 	}//for (i = 0; i < num_cur_tch; i++)
 
 #ifdef SAMSUNG_PALM_MOTION
-	scale_sum_size(md, &sumsize);
+	if (hover)
+		sumsize = 1;
+	else
+		scale_sum_size(md, &sumsize);
 
 	cyttsp5_final_sync(md->input, MAX_TOUCH_ID_NUMBER,
 		mt_sync_count, ids,
-		sumsize, md->palm, hover);
+		sumsize, md->palm);
 #else
 	cyttsp5_final_sync(md->input, MAX_TOUCH_ID_NUMBER,
 		mt_sync_count, ids);	// slot state for MTB
@@ -615,7 +672,6 @@ static int cyttsp5_xy_worker(struct cyttsp5_mt_data *md)
 	struct cyttsp5_sysinfo *si = md->si;
 	struct cyttsp5_touch tch;
 	u8 num_cur_tch;
-	static bool prev_palm = false;
 
 	cyttsp5_get_touch_hdr(md, &tch, si->xy_mode + 3);
 
@@ -630,10 +686,25 @@ static int cyttsp5_xy_worker(struct cyttsp5_mt_data *md)
 		dev_dbg(dev, "%s: Large area detected\n", __func__);
 		if (md->pdata->flags & CY_MT_FLAG_NO_TOUCH_ON_LO)
 			num_cur_tch = 0;
-	}
 #ifdef SAMSUNG_PALM_MOTION
-	if (tch.hdr[CY_TCH_LO])
 		md->palm = true;
+#endif
+	}
+
+#ifdef FORCE_SATISFY_PALMPAUSE_FOR_LARGEOBJ
+	if (!md->largeobj) {
+		if (tch.hdr[CY_TCH_LO]) {
+			md->largeobj = true;
+			cyttsp5_get_mt_touches(md, &tch, 4);
+			goto skip_num_cur_tch;
+		}
+	} else {
+		if (!num_cur_tch && !tch.hdr[CY_TCH_LO]) {
+			md->largeobj = false;
+			cyttsp5_mt_lift_all(md);
+		}
+		goto skip_num_cur_tch;
+	}
 #endif
 
 	/* extract xy_data for all currently reported touches */
@@ -644,12 +715,8 @@ static int cyttsp5_xy_worker(struct cyttsp5_mt_data *md)
 	else
 		cyttsp5_mt_lift_all(md);
 
-#ifdef SAMSUNG_PALM_MOTION
-	if (prev_palm != md->palm) {
-		dev_dbg(dev, "%s: palm=%d\n", __func__,
-			md->palm);
-		prev_palm = md->palm;
-	}
+#ifdef FORCE_SATISFY_PALMPAUSE_FOR_LARGEOBJ
+skip_num_cur_tch:
 #endif
 	return 0;
 }
@@ -663,9 +730,9 @@ static void cyttsp5_mt_send_dummy_event(struct cyttsp5_mt_data *md)
 			0, CY_OBJ_STANDARD_FINGER);
 	cyttsp5_input_sync(md->input);
 #ifdef SAMSUNG_PALM_MOTION
-	cyttsp5_final_sync(md->input, 0, 1, &ids, 1, 0, 0);
+	cyttsp5_final_sync(md->input, 0, 1, &ids, 1, 0);
 	cyttsp5_report_slot_liftoff(md, 1);
-	cyttsp5_final_sync(md->input, 1, 1, &ids, 1, 0, 0);
+	cyttsp5_final_sync(md->input, 1, 1, &ids, 1, 0);
 #else
 	cyttsp5_final_sync(md->input, 0, 1, &ids);
 	cyttsp5_report_slot_liftoff(md, 1);
@@ -725,7 +792,7 @@ static int cyttsp5_startup_attention(struct device *dev)
 void cyttsp5_mt_prevent_touch(struct device *dev, bool prevent)
 {
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
-	struct cyttsp5_mt_data *md = &cd->md;
+	struct cyttsp5_mt_data *md;
 	if (cd == NULL)
 		return;
 	md = &cd->md;
@@ -796,11 +863,11 @@ static void cyttsp5_mt_close(struct input_dev *input)
 	dev_dbg(dev, "%s:\n", __func__);
 
 #if defined(TSP_BOOSTER)
-	if (md->touch_pressed_num != 0) {
+	//if (md->touch_pressed_num != 0) {
 		dev_err(md->dev, "%s force dvfs off\n", __func__);
 		md->touch_pressed_num = 0;
 		set_dvfs_lock(md, 2, false);
-	}
+	//}
 #endif
 #ifdef SAMSUNG_TOUCH_MODE
 	input_report_switch(md->input,

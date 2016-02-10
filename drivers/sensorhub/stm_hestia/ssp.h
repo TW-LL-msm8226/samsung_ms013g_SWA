@@ -83,7 +83,7 @@
 
 #if SSP_FUNC_DBG
 #define func_dbg() do { \
-	printk(KERN_INFO "[SSP]: %s\n", __func__); \
+	printk(KERN_INFO "[SSP] %s\n", __func__); \
 	} while (0)
 #else
 #define func_dbg()
@@ -202,6 +202,7 @@ enum {
 #define MSG2SSP_AP_GET_BIG_DATA			0xF9
 #define MSG2SSP_AP_SET_BIG_DATA			0xFA
 #define MSG2SSP_AP_START_BIG_DATA		0xFB
+#define MSG2SSP_AP_GET_UV_DEVICE_ID		0xFC
 #define MSG2SSP_AP_SET_MAGNETIC_STATIC_MATRIX	0xFD
 #define MSG2SSP_AP_SENSOR_TILT			0xEA
 #define MSG2SSP_AP_MCU_SET_TIME			0xFE
@@ -318,6 +319,7 @@ enum {
 	BIO_HRM_RAW,
 	BIO_HRM_RAW_FAC,
 	BIO_HRM_LIB,
+	UV_SENSOR,
 	SENSOR_MAX,
 };
 	
@@ -370,7 +372,14 @@ struct sensor_value {
 		u8 step_det;
 		u8 sig_motion;
 		u32 step_diff;
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+		u8 uv;
+#endif
+#if defined(CONFIG_SENSORS_SSP_STM_HESTIA)
+		u16 prox[4];
+#else
 		u8 prox[4];
+#endif
 		u8 data[20];
 		s32 pressure[3];
 
@@ -416,6 +425,13 @@ struct hw_offset_data {
 #define TBD_LOW_THRESHOLD	85
 #define WHITE_HIGH_THRESHOLD	110
 #define WHITE_LOW_THRESHOLD	85
+#elif defined(CONFIG_SENSORS_SSP_STM_HESTIA)
+#define DEFUALT_HIGH_THRESHOLD	480
+#define DEFUALT_LOW_THRESHOLD	340
+#define TBD_HIGH_THRESHOLD	480
+#define TBD_LOW_THRESHOLD	340
+#define WHITE_HIGH_THRESHOLD	480
+#define WHITE_LOW_THRESHOLD	340
 #else
 #define DEFUALT_HIGH_THRESHOLD	130
 #define DEFUALT_LOW_THRESHOLD	90
@@ -423,6 +439,11 @@ struct hw_offset_data {
 #define TBD_LOW_THRESHOLD	90
 #define WHITE_HIGH_THRESHOLD	130
 #define WHITE_LOW_THRESHOLD	90
+#endif
+#if defined(CONFIG_SENSORS_SSP_STM_HESTIA)
+#define PROX_TRIM	170
+#else
+#define PROX_TRIM	0
 #endif
 
 struct ssp_msg {
@@ -485,6 +506,9 @@ struct ssp_data {
 	defined(CONFIG_SENSORS_SSP_MAX88920)
 	struct input_dev *gesture_input_dev;
 #endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	struct input_dev *uv_input_dev;
+#endif
 	struct input_dev *sig_motion_input_dev;
 	struct input_dev *uncalib_gyro_input_dev;
 	struct input_dev *step_cnt_input_dev;
@@ -514,6 +538,9 @@ struct ssp_data {
 #endif
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	struct device *temphumidity_device;
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	struct device *uv_device;
 #endif
 	struct delayed_work work_firmware;
 	struct delayed_work work_refresh;
@@ -601,6 +628,7 @@ struct ssp_data {
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	char *comp_engine_ver;
 	char *comp_engine_ver2;
+	int current_temp;
 	struct mutex cp_temp_adc_lock;
 	struct mutex bulk_temp_read_lock;
 	struct shtc1_buffer* bulk_buffer;
@@ -683,6 +711,10 @@ void remove_gesture_factorytest(struct ssp_data *data);
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 void remove_temphumidity_factorytest(struct ssp_data *data);
 #endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+void	initialize_uv_factorytest(struct ssp_data *);
+void	remove_uv_factorytest(struct ssp_data *);
+#endif
 #ifdef CONFIG_SENSORS_SSP_MOBEAM
 void initialize_mobeam(struct ssp_data *data);
 void remove_mobeam(struct ssp_data *data);
@@ -751,6 +783,9 @@ void report_pressure_data(struct ssp_data *, struct sensor_value *);
 #endif
 void report_light_data(struct ssp_data *, struct sensor_value *);
 void report_prox_data(struct ssp_data *, struct sensor_value *);
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+void report_uv_data(struct ssp_data *, struct sensor_value *);
+#endif
 void report_prox_raw_data(struct ssp_data *, struct sensor_value *);
 void report_geomagnetic_raw_data(struct ssp_data *, struct sensor_value *);
 void report_sig_motion_data(struct ssp_data *, struct sensor_value *);

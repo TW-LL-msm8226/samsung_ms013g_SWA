@@ -41,7 +41,7 @@
 
 #define ISPIF_TIMEOUT_SLEEP_US                1000
 #if defined(CONFIG_MACH_VICTORLTE_CTC) || defined(CONFIG_MACH_AFYONLTE_TMO) \
-	|| defined (CONFIG_MACH_AFYONLTE_MTR)
+	|| defined (CONFIG_MACH_AFYONLTE_MTR) || defined (CONFIG_MACH_AFYONLTE_CAN)
 #define ISPIF_TIMEOUT_ALL_US                1000000
 #else
 #define ISPIF_TIMEOUT_ALL_US                500000

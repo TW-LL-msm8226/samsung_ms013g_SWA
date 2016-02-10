@@ -558,11 +558,18 @@ static int pcal6416a_reset_chip(struct pcal6416a_platform_data *pdata)
 			return retval;
 		}
 
+#if !defined(CONFIG_SEC_ATLANTIC_PROJECT) && !defined(CONFIG_MACH_A5LTE_JPN_KDI)
+/* Stop expander reset for KMINI USA & USA devices
+ * Reason: Its a work arround patch for KMINI USA/USC HWs only.
+ * Because, LCD_ON PIN connected to Expander I/O.
+ * Whenever EXPANDER-resets, LCD_ON PIN GO LOW and LCD turns-off.
+ */
 		usleep(100);
 		gpio_set_value(reset_gpio, 0);
 		usleep(100);
 		gpio_set_value(reset_gpio, 1);
 		pr_info("[%s]: gpio expander reset.\n", __func__);
+#endif
 
 		gpio_free(reset_gpio);
 		return 0;
@@ -584,14 +591,26 @@ static ssize_t store_pcal6416a_gpio_inout(struct device *dev,
 	char in_out, msg[13];
 	struct pcal6416a_chip *data = dev_get_drvdata(dev);
 
-	retval = sscanf(buf, "%c %d %d", &in_out, &off, &val);
+	retval = sscanf(buf, "%1c %3d %1d", &in_out, &off, &val);
 	if (retval == 0) {
 		dev_err(&data->client->dev, "[%s] fail to pcal6416a out.\n", __func__);
 		return count;
 	}
+	if (!(in_out == 'i' || in_out == 'o')) {
+		pr_err("[%s] wrong in_out value [%c]\n", __func__,  in_out);
+		return count;
+	}
+	if ((off < 0) || (off > 15)) {
+		pr_err("[%s] wrong offset value [%d]\n", __func__, off);
+		return count;
+	}
+	if (!(val == 0 || val == 1)) {
+		pr_err("[%s] wrong val value [%d]\n", __func__, val);
+		return count;
+	}
 
 	gpio_pcal6416a = data->gpio_start + off;
-	sprintf(msg, "exp-gpio%d\n", off);
+	snprintf(msg, sizeof(msg)/sizeof(char), "exp-gpio%d\n", off);
 	if (gpio_is_valid(gpio_pcal6416a)) {
 		retval = gpio_request(gpio_pcal6416a, msg);
 		if (retval) {

@@ -18,11 +18,15 @@
 
 #define TSP_VERBOSE_DEBUG
 #define SEC_FACTORY_TEST
-#ifdef CONFIG_SEC_MEGA23G_COMMON
+#if defined(CONFIG_SEC_MEGA23G_COMMON) || defined(CONFIG_SEC_MEGA2LTE_COMMON) || defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
 #define SUPPORTED_TOUCH_KEY 1
+#define ZINITIX_NEW_TA_COVER_REGISTER_0x11F
+#define USE_ACTIVE_REPORT_RATE
 #else
 #define SUPPORTED_TOUCH_KEY 0
 #endif
+
+#define TSP_BOOSTER
 
 #include <linux/module.h>
 #include <linux/input.h>
@@ -50,16 +54,33 @@
 #include <asm/io.h>
 #include <linux/power_supply.h>
 
+#if defined(CONFIG_USB_SWITCH_TSU6721) || defined(CONFIG_USB_SWITCH_RT8973) || defined(CONFIG_SM5502_MUIC)
+#include <linux/i2c/tsu6721.h>
+#endif
 #ifdef CONFIG_MACH_PXA_SAMSUNG
 #include <linux/sec-common.h>
 #endif
 /* added header file */
 
-#ifdef CONFIG_SEC_MEGA23G_COMMON
-#include "zinitix_touch_zxt_firmware_ZI012405.h"
+#if defined(CONFIG_SEC_MEGA23G_COMMON) || defined(CONFIG_SEC_MEGA2LTE_COMMON)
+#include "zinitix_touch_zxt_firmware_ZI012407.h"
+#elif defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+#include "zinitix_touch_zxt_firmware_ZI022409.h"
+#elif defined(CONFIG_MACH_DEGASLTE_SBM)
+#include "zinitix_touch_zxt_firmware_ZI002516.h"
 #else
-#include "zinitix_touch_zxt_firmware_ZI002513.h"
+#include "zinitix_touch_zxt_firmware_ZI002515.h"
 #endif
+
+#ifdef TSP_BOOSTER
+#include <linux/cpufreq.h>
+#define DVFS_STAGE_DUAL		2
+#define DVFS_STAGE_SINGLE		1
+#define DVFS_STAGE_NONE		0
+#define TOUCH_BOOSTER_OFF_TIME	300
+#define TOUCH_BOOSTER_CHG_TIME	200
+#endif
+
 #define NOT_SUPPORTED_TOUCH_DUMMY_KEY
 #define SUPPORTED_PALM_TOUCH
 
@@ -84,6 +105,7 @@ extern char *saved_command_line;
 #define SUPPORTED_BUTTON_NUM		4
 #endif
 #endif
+#define TSP_HW_ID_INDEX_NULL	3
 
 /* Upgrade Method*/
 #define TOUCH_ONESHOT_UPGRADE		1
@@ -94,7 +116,7 @@ name = "zinitix_isp" , addr 0x50*/
 
 #define TOUCH_FORCE_UPGRADE		1
 #define USE_CHECKSUM			1
-#ifdef CONFIG_SEC_MEGA23G_COMMON
+#if defined(CONFIG_SEC_MEGA23G_COMMON) || defined(CONFIG_SEC_MEGA2LTE_COMMON) || defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
 #define CHECK_HWID			1
 #else
 #define CHECK_HWID			0
@@ -125,17 +147,23 @@ enum key_event {
 	ICON_BUTTON_DOWN,
 	ICON_BUTTON_UP,
 };
-#ifdef CONFIG_SEC_MEGA23G_COMMON
-#define ESD_TIMER_INTERVAL		0
-#else
 /* ESD Protection */
 /*second : if 0, no use. if you have to use, 3 is recommended*/
 #define ESD_TIMER_INTERVAL		1
-#endif
 #define SCAN_RATE_HZ			100
 #define CHECK_ESD_TIMER			3
 
  /*Test Mode (Monitoring Raw Data) */
+#if defined(CONFIG_SEC_MEGA23G_COMMON) || defined(CONFIG_SEC_MEGA2LTE_COMMON) || defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+#define SEC_DND_SHIFT_VALUE		2
+#define SEC_DND_N_COUNT			10
+#define SEC_DND_U_COUNT			2
+#define SEC_DND_FREQUENCY		116
+
+#define SEC_PDND_N_COUNT		16
+#define SEC_PDND_U_COUNT		20
+#define SEC_PDND_FREQUENCY		119
+#else
 #define SEC_DND_SHIFT_VALUE		3
 #define SEC_DND_N_COUNT			10
 #define SEC_DND_U_COUNT			2
@@ -144,6 +172,7 @@ enum key_event {
 #define SEC_PDND_N_COUNT		16
 #define SEC_PDND_U_COUNT		14
 #define SEC_PDND_FREQUENCY		66
+#endif
 
 #define MAX_RAW_DATA_SZ			576 /* 32x18 */
 #define MAX_TRAW_DATA_SZ	\
@@ -242,6 +271,8 @@ struct reg_ioctl {
 #define BT532_WRITE_FLASH		0x01d1
 #define BT532_READ_FLASH		0x01d2
 
+#define ZINITIX_INTERNAL_FLAG_03		0x011f
+
 
 /* Interrupt & status register flag bit
 -------------------------------------------------
@@ -301,6 +332,10 @@ struct reg_ioctl {
 extern int poweroff_charging;
 #endif
 
+//Added TSP TA charger callbacks
+struct zinitix_callbacks {
+	void (*inform_charger)(int);
+};
 /* end header file */
 
 #ifdef SEC_FACTORY_TEST
@@ -361,6 +396,7 @@ static void not_support_cmd(void *device_data);
 
 /* Vendor dependant command */
 static void run_reference_read(void *device_data);
+static void run_reference_PDiff(void *device_data);
 static void get_reference(void *device_data);
 static void run_preference_read(void *device_data);
 static void get_preference(void *device_data);
@@ -370,11 +406,22 @@ static void get_scantime(void *device_data);
 */
 static void run_delta_read(void *device_data);
 static void get_delta(void *device_data);
+static void clear_cover_mode(void *device_data);
 static void get_module_vendor(void *device_data);
 static void get_config_ver(void *device_data);
+#ifdef TSP_BOOSTER
+static void boost_level(void *device_data);
+#endif
+#if defined(USE_ACTIVE_REPORT_RATE)
+static void report_rate(void *device_data);
+#endif
 #define TSP_CMD(name, func) .cmd_name = name, .cmd_func = func
 
+#if !defined(CONFIG_SEC_DEGAS_PROJECT)
 u32 config_version;
+#else
+#define CONFIG_DATE "0603"
+#endif
 
 static struct tsp_cmd tsp_cmds[] = {
 	{TSP_CMD("fw_update", fw_update),},
@@ -390,10 +437,10 @@ static struct tsp_cmd tsp_cmds[] = {
 	{TSP_CMD("get_chip_name", get_chip_name),},
 	{TSP_CMD("get_x_num", get_x_num),},
 	{TSP_CMD("get_y_num", get_y_num),},
-	{TSP_CMD("not_support_cmd", not_support_cmd),},
 
 	/* vendor dependant command */
 	{TSP_CMD("run_reference_read", run_reference_read),},
+	{TSP_CMD("run_reference_diff", run_reference_PDiff),},
 	{TSP_CMD("get_reference", get_reference),},
 	{TSP_CMD("run_dnd_read", run_preference_read),},
 	{TSP_CMD("get_dnd", get_preference),},
@@ -403,7 +450,15 @@ static struct tsp_cmd tsp_cmds[] = {
 */
 	{TSP_CMD("run_delta_read", run_delta_read),},
 	{TSP_CMD("get_delta", get_delta),},
-        {TSP_CMD("get_config_ver", get_config_ver),},
+	{TSP_CMD("get_config_ver", get_config_ver),},
+	{TSP_CMD("clear_cover_mode", clear_cover_mode),},
+#ifdef TSP_BOOSTER
+        {TSP_CMD("boost_level", boost_level),},
+#endif
+#if defined(USE_ACTIVE_REPORT_RATE)	
+	{TSP_CMD("report_rate", report_rate),},	
+#endif
+	{TSP_CMD("not_support_cmd", not_support_cmd),},
 };
 #if 0
 #ifdef SUPPORTED_TOUCH_KEY
@@ -433,8 +488,15 @@ static ssize_t touchkey_idac_menu(struct device *dev,
 #define TSP_NORMAL_EVENT_MSG 1
 static int m_ts_debug_mode = ZINITIX_DEBUG;
 static bool ta_connected =0;
-void (*tsp_charger_status_cb)(int);
+//void (*tsp_charger_status_cb)(int);
 
+#define COVER_OPEN 0
+#define COVER_CLOSED 3
+static int g_cover_state;
+static u16 g_internal_flag_03 = 1;
+static u16 m_optional_mode = 0;
+static u16 m_prev_optional_mode = 0;
+static bool checkUMSMode = 0;
 #if ESD_TIMER_INTERVAL
 static struct workqueue_struct *esd_tmr_workqueue;
 #endif
@@ -547,9 +609,44 @@ struct bt532_ts_info {
 	struct tsp_factory_info		*factory_info;
 	struct tsp_raw_data		*raw_data;
 #endif
+
+	u16 dnd_data[MAX_RAW_DATA_SZ];
+	s16 ref_data[MAX_RAW_DATA_SZ];
+
+	s16 ref_scale_factor;
+	s16 ref_btn_option;
+	s16 hdiff_max_x;
+	s16 hdiff_max_y;
+	s16 hdiff_max_val;
+	s16 hdiff_min_x;
+	s16 hdiff_min_y;
+	s16 hdiff_min_val;
+
+	s16 vdiff_max_x;
+	s16 vdiff_max_y;
+	s16 vdiff_max_val;
+	s16 vdiff_min_x;
+	s16 vdiff_min_y;
+	s16 vdiff_min_val;
+
 	struct regulator *vddo_vreg;
+	u8 tsp_type_hw;
 	struct regulator *vdd_en;
 	bool device_enabled;
+
+#ifdef TSP_BOOSTER
+	u8 touch_pressed_num;
+	bool dvfs_lock_status;
+	struct delayed_work work_dvfs_off;
+	struct delayed_work work_dvfs_chg;
+	struct mutex dvfs_lock;
+	int dvfs_old_status;
+	unsigned char boost_level;
+	int dvfs_freq;
+#endif
+	//Added TSP TA charger callbacks
+	void (*register_cb)(struct zinitix_callbacks *);
+	struct zinitix_callbacks callbacks;
 };
 /* Dummy touchkey code */
 #define KEY_DUMMY_HOME1		249
@@ -566,6 +663,73 @@ u32 BUTTON_MAPPING_KEY[MAX_SUPPORTED_BUTTON_NUM] = {
 	KEY_DUMMY_MENU, KEY_RECENT,// KEY_DUMMY_HOME1,
 	/*KEY_DUMMY_HOME2,*/ KEY_BACK, KEY_DUMMY_BACK};
 #endif
+
+/* VASTA SPEC */
+const u16 dnd_v_diff_00[29][18]={
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500,	3500},
+	{	0,	0,	0,	10000,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	10000,	0,	0,	0}
+};
+
+const u16 dnd_h_diff_00[29][17]={
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000},
+	{3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000,	3000}
+};
+//Added TSP TA charger callbacks
+extern void zinitix_tsp_register_callback(struct zinitix_callbacks *cb);
 
 /* define i2c sub functions*/
 static inline s32 read_data(struct i2c_client *client,
@@ -751,14 +915,59 @@ static struct miscdevice touch_misc_device = {
 
 struct bt532_ts_info *misc_info;
 
+static void bt532_firmware_check(struct bt532_ts_platform_data   *pdata)
+{
+#if defined(CONFIG_SEC_DEGAS_PROJECT)
+	misc_info->tsp_type_hw = TSP_HW_ID_INDEX_NULL;			//HW_ID 3
+
+	gpio_tlmm_config(GPIO_CFG(pdata->tsp_vendor1, 0,
+				GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+	gpio_tlmm_config(GPIO_CFG(pdata->tsp_vendor2, 0,
+				GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+
+	printk("gpio_get_value(TSP_ID_1:gpio%d)=%d, gpio_get_value(TSP_ID_2:gpio%d)=%d\n",\
+		pdata->tsp_vendor1, gpio_get_value(pdata->tsp_vendor1), pdata->tsp_vendor2, gpio_get_value(pdata->tsp_vendor2));
+
+	if(!gpio_get_value(pdata->tsp_vendor1))
+		zinitix_bit_clr(misc_info->tsp_type_hw,0);		//HW_ID 2
+	if(!gpio_get_value(pdata->tsp_vendor2))
+		zinitix_bit_clr(misc_info->tsp_type_hw,1);		//HW_ID 0
+
+	zinitix_printk("%s %d\n",__func__,misc_info->tsp_type_hw);
+
+#else
+	return;
+#endif
+}
+
+static void bt532_set_optional_mode(struct bt532_ts_info *info, bool force)
+{
+	u16	reg_val;
+
+	if(m_prev_optional_mode == m_optional_mode && !force)
+		return;
+	reg_val = g_internal_flag_03 | m_optional_mode;
+	if(write_reg(info->client, ZINITIX_INTERNAL_FLAG_03, reg_val)==I2C_SUCCESS){
+		m_prev_optional_mode = m_optional_mode;
+	}
+}
+#if defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+#define I2C_BUFFER_SIZE 64
+#endif
 static bool get_raw_data(struct bt532_ts_info *info, u8 *buff, int skip_cnt)
 {
 	struct i2c_client *client = info->client;
 	struct bt532_ts_platform_data *pdata = info->pdata;
 	u32 total_node = info->cap_info.total_node_num;
+#if defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+	int sz;
+#else
 	u32 sz;
+#endif
 	int i;
-
+#if defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+        u32 temp_sz;
+#endif
 	disable_irq(info->irq);
 
 	down(&info->work_lock);
@@ -786,6 +995,21 @@ static bool get_raw_data(struct bt532_ts_info *info, u8 *buff, int skip_cnt)
 	while (gpio_get_value(pdata->gpio_int))
 		msleep(1);
 
+#if defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+        for(i= 0; sz > 0; i++){
+		temp_sz = I2C_BUFFER_SIZE;
+		if(sz < I2C_BUFFER_SIZE)
+			temp_sz = sz;
+		if (read_raw_data(client, BT532_RAWDATA_REG + i, (char *)(buff + (i*I2C_BUFFER_SIZE)), temp_sz) < 0) {
+			zinitix_printk("error : read zinitix tc raw data\n");
+			info->work_state = NOTHING;
+	                enable_irq(info->irq);
+	                up(&info->work_lock);
+                        return false;
+		}
+		sz -= I2C_BUFFER_SIZE;
+	}
+#else
 	if (read_raw_data(client, BT532_RAWDATA_REG, (char *)buff, sz) < 0) {
 		zinitix_printk("error : read zinitix tc raw data\n");
 		info->work_state = NOTHING;
@@ -793,7 +1017,7 @@ static bool get_raw_data(struct bt532_ts_info *info, u8 *buff, int skip_cnt)
 		up(&info->work_lock);
 		return false;
 	}
-
+#endif
 	write_cmd(client, BT532_CLEAR_INT_STATUS_CMD);
 	info->work_state = NOTHING;
 	enable_irq(info->irq);
@@ -832,6 +1056,68 @@ static bool ts_get_raw_data(struct bt532_ts_info *info)
 	return true;
 }
 
+#if defined(USE_ACTIVE_REPORT_RATE)	
+#define BT532_LPM_INTERRUPT_INTERVAL	0x0142
+#define BT532_LPM_PERIOD_DELAY			0x00e2
+#define BT532_LPM_STATE					0x007e
+
+#if defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+#define	DEF_TS_LPM_LEVEL_DEFAULT	0
+#else
+#define	DEF_TS_LPM_LEVEL_DEFAULT	3
+#endif
+static int g_prev_lpm_level = DEF_TS_LPM_LEVEL_DEFAULT;
+static int g_lpm_level = DEF_TS_LPM_LEVEL_DEFAULT;
+
+static void ts_lpm_set(int level)
+{
+	if(g_prev_lpm_level == level)	return;
+        dev_info(&misc_info->client->dev, "%s: %d\n", __func__, level); 
+
+#if !defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
+	if(level==1)	//25Hz
+	{
+		if(write_reg(misc_info->client, BT532_LPM_PERIOD_DELAY, 1000)!=I2C_SUCCESS)
+			return;
+		if(write_reg(misc_info->client, BT532_LPM_INTERRUPT_INTERVAL, 25)!=I2C_SUCCESS)
+			return;
+		if(write_reg(misc_info->client, BT532_LPM_STATE, 1)!=I2C_SUCCESS)
+			return;
+	}
+	else if(level==2)	//60Hz
+#else
+	if(level==1 || level==2)	//60Hz
+#endif
+	{
+		if(write_reg(misc_info->client, BT532_LPM_PERIOD_DELAY, 150)!=I2C_SUCCESS)
+			return;
+		if(write_reg(misc_info->client, BT532_LPM_INTERRUPT_INTERVAL, 60)!=I2C_SUCCESS)
+			return;
+		if(write_reg(misc_info->client, BT532_LPM_STATE, 1)!=I2C_SUCCESS)
+			return;
+	}
+	else	// set default
+	{
+		if(write_reg(misc_info->client, BT532_LPM_PERIOD_DELAY, 1000)!=I2C_SUCCESS)
+			return;
+		if(write_reg(misc_info->client, BT532_LPM_INTERRUPT_INTERVAL, 25)!=I2C_SUCCESS)
+			return;
+		if(write_reg(misc_info->client, BT532_LPM_STATE, 3)!=I2C_SUCCESS)
+			return;
+	}
+	g_prev_lpm_level = level;
+}
+
+static void ts_lpm_level_set(int level)
+{
+	g_lpm_level = level;
+
+	if(misc_info == NULL)	return;
+	if (misc_info->work_state != NOTHING)
+		return;
+	ts_lpm_set(g_lpm_level);
+}
+#endif
 static bool ts_read_coord(struct bt532_ts_info *info)
 {
 	struct i2c_client *client = info->client;
@@ -891,7 +1177,9 @@ static bool ts_read_coord(struct bt532_ts_info *info)
 		return false;
 	}
 #endif
-
+#ifdef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
+	bt532_set_optional_mode(info, false);
+#endif
 out:
 	/* error */
 	if (zinitix_bit_test(info->touch_info.status, BIT_MUST_ZERO)) {
@@ -901,6 +1189,11 @@ out:
 		udelay(DELAY_FOR_SIGNAL_DELAY);*/
 		return false;
 	}
+
+#if defined(USE_ACTIVE_REPORT_RATE)	
+	ts_lpm_set(g_lpm_level);	
+#endif
+
 /*
 	if (zinitix_bit_test(info->touch_info.status, BIT_ICON_EVENT)) {
 		udelay(20);
@@ -1125,29 +1418,39 @@ static bool bt532_power_control(struct bt532_ts_info *info, u8 ctl)
 
 static void bt532_set_ta_status(struct bt532_ts_info *info)
 {
+#ifndef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
 	u16	reg_val;
+#endif
 	printk("Inside bt532_set_ta_status()\n");
 
 	if(info->work_state == SUSPEND || info->work_state == PROBE)
 		return;
 
 	if (ta_connected) {
+#ifdef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
+		zinitix_bit_set(m_optional_mode, 1);
+#else
 		read_data(info->client, 0x011e,	(u8 *)&reg_val, 2);
 		zinitix_bit_clr(reg_val, 1);
 		zinitix_bit_set(reg_val, 14);
 		write_reg(info->client, 0x011e,	reg_val);
+#endif
 		}
 	else {
+#ifdef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
+		zinitix_bit_clr(m_optional_mode, 1);
+#else
 		read_data(info->client, 0x011e,	(u8 *)&reg_val, 2);
 		zinitix_bit_set(reg_val, 1);
 		zinitix_bit_clr(reg_val, 14);
 		write_reg(info->client, 0x011e,	reg_val);
+#endif
 		}
 }
 
-static void bt532_charger_status_cb(int status)
+void bt532_charger_status_cb(int status)
 {
-	int mode = (status == POWER_SUPPLY_TYPE_BATTERY);
+	int mode = (status == CABLE_TYPE_NONE);
 	printk("Inside bt532_charger_status_cb()\n");
 	if (mode)
 		ta_connected = false;
@@ -1362,6 +1665,12 @@ static bool ts_hw_calibration(struct bt532_ts_info *info)
 	u16	chip_eeprom_info;
 	int time_out = 0;
 
+#if defined(CONFIG_SEC_DEGAS_PROJECT)
+	if (info->tsp_type_hw == TSP_HW_ID_INDEX_NULL){		//HW_ID 3
+		zinitix_printk("TSP panel wasn't connected to board\n");
+		return true;
+	}
+#endif
 	if (write_reg(client,
 		BT532_TOUCH_MODE, 0x07) != I2C_SUCCESS)
 		return false;
@@ -1433,7 +1742,7 @@ static bool ts_hw_calibration(struct bt532_ts_info *info)
 		BT532_SAVE_CALIBRATION_CMD) != I2C_SUCCESS)
 		return false;
 
-	mdelay(1000);
+	mdelay(2000);
 	write_reg(client, 0xc003, 0x0000);
 	write_reg(client, 0xc104, 0x0000);
 	return true;
@@ -1454,6 +1763,11 @@ static bool init_touch(struct bt532_ts_info *info)
 	int retry_cnt = 0;
 	char* productionMode = "androidboot.bsp=2";
 	char* checkMode = NULL;
+
+#if defined(USE_ACTIVE_REPORT_RATE)	
+	g_prev_lpm_level = DEF_TS_LPM_LEVEL_DEFAULT;
+	g_lpm_level = DEF_TS_LPM_LEVEL_DEFAULT;
+#endif	
 
 	checkMode = strstr(saved_command_line, productionMode);
 retry_init:
@@ -1595,6 +1909,10 @@ retry_init:
 	zinitix_debug_msg("afe frequency = %d\n", cap->afe_frequency);
 
 
+	if (read_data(client, BT532_DND_SHIFT_VALUE,
+				(u8 *)&cap->shift_value, 2) < 0)
+		goto fail_init;
+
 	/* get chip firmware version */
 	if (read_data(client, BT532_FIRMWARE_VERSION,
 		(u8 *)&cap->fw_version, 2) < 0)
@@ -1611,7 +1929,7 @@ retry_init:
 #if TOUCH_ONESHOT_UPGRADE
 	if ((checkMode == NULL) &&(ts_check_need_upgrade(info, cap->fw_version,
 			cap->fw_minor_version, cap->reg_data_version,
-								cap->hw_id) == true)) {
+								cap->hw_id) == true) && (checkUMSMode == false )) {
 		zinitix_printk("start upgrade firmware\n");
 
 		if (ts_upgrade_firmware(info, m_firmware_data,
@@ -1689,7 +2007,15 @@ retry_init:
 	if (write_reg(client, BT532_TOUCH_MODE, info->touch_mode) != I2C_SUCCESS)
 		goto fail_init;
 
+
+#ifdef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
+	read_data(client, ZINITIX_INTERNAL_FLAG_03,	(u8 *)&g_internal_flag_03, 2);
+	zinitix_bit_clr(g_internal_flag_03, 1);		//TA
+	zinitix_bit_clr(g_internal_flag_03, 2);		//cover
+	bt532_set_optional_mode(info, true);
+#else
 	bt532_set_ta_status(info);
+#endif
 	/* soft calibration */
 //	if (write_cmd(client, BT532_CALIBRATE_CMD) != I2C_SUCCESS)
 //		goto fail_init;
@@ -1787,6 +2113,11 @@ static bool mini_init_touch(struct bt532_ts_info *info)
 	}
 #endif
 
+#if defined(USE_ACTIVE_REPORT_RATE)	
+	g_prev_lpm_level = DEF_TS_LPM_LEVEL_DEFAULT;
+	g_lpm_level = DEF_TS_LPM_LEVEL_DEFAULT;
+#endif
+	
 	if (write_cmd(client, BT532_SWRESET_CMD) != I2C_SUCCESS) {
 		dev_info(&client->dev, "Failed to write reset command\n");
 
@@ -1821,10 +2152,15 @@ static bool mini_init_touch(struct bt532_ts_info *info)
 			info->touch_mode) != I2C_SUCCESS)
 		goto fail_mini_init;
 
+#ifdef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
+	bt532_set_optional_mode(info, true);
+#else
 	bt532_set_ta_status(info);
+
 	/* soft calibration */
 	if (write_cmd(client, BT532_CALIBRATE_CMD) != I2C_SUCCESS)
 		goto fail_mini_init;
+#endif
 
 	if (write_reg(client, BT532_INT_ENABLE_FLAG,
 			info->cap_info.ic_int_mask) != I2C_SUCCESS)
@@ -1879,6 +2215,92 @@ fail_mini_init:
 	return true;
 }
 
+#ifdef TSP_BOOSTER
+static void change_dvfs_lock(struct work_struct *work)
+{
+	struct bt532_ts_info *info = container_of(work,
+		struct bt532_ts_info, work_dvfs_chg.work);
+	int ret = 0;
+
+	mutex_lock(&info->dvfs_lock);
+
+	if (info->boost_level == DVFS_STAGE_DUAL) {
+		ret = set_freq_limit(DVFS_TOUCH_ID, MIN_TOUCH_LIMIT_SECOND);
+		info->dvfs_freq = MIN_TOUCH_LIMIT_SECOND;
+	} else if (info->boost_level == DVFS_STAGE_SINGLE) {
+		ret = set_freq_limit(DVFS_TOUCH_ID, -1);
+		info->dvfs_freq = -1;
+	}
+	if (ret < 0)
+		printk(KERN_ERR "bt532_ts_device TSP %s: booster stop failed(%d)\n",\
+					__func__, __LINE__);
+
+	mutex_unlock(&info->dvfs_lock);
+}
+static void set_dvfs_off(struct work_struct *work)
+{
+
+	struct bt532_ts_info *info = container_of(work,
+				struct bt532_ts_info, work_dvfs_off.work);
+	int ret;
+	mutex_lock(&info->dvfs_lock);
+	ret = set_freq_limit(DVFS_TOUCH_ID, -1);
+	if (ret < 0)
+		printk(KERN_ERR "bt532_ts_device TSP %s: booster stop failed(%d)\n",\
+					__func__, __LINE__);
+	info->dvfs_freq = -1;
+	info->dvfs_lock_status = false;
+	mutex_unlock(&info->dvfs_lock);
+
+}
+
+static void set_dvfs_lock(struct bt532_ts_info *info, uint32_t on, bool mode)
+{
+	int ret = 0;
+
+	if (DVFS_STAGE_NONE == info->boost_level)
+		return;
+
+	mutex_lock(&info->dvfs_lock);
+	if (on == 0) {
+		if (info->dvfs_lock_status) {
+			schedule_delayed_work(&info->work_dvfs_off,
+				msecs_to_jiffies(TOUCH_BOOSTER_OFF_TIME));
+		}
+	} else if (on == 1) {
+		cancel_delayed_work(&info->work_dvfs_off);
+		if (!info->dvfs_lock_status || mode) {
+			if (info->dvfs_old_status != on) {
+				cancel_delayed_work(&info->work_dvfs_chg);
+					if (info->dvfs_freq != MIN_TOUCH_LIMIT) {
+						ret = set_freq_limit(DVFS_TOUCH_ID,
+								MIN_TOUCH_LIMIT);
+						info->dvfs_freq = MIN_TOUCH_LIMIT;
+
+						if (ret < 0)
+							printk(KERN_ERR
+								"%s: cpu first lock failed(%d)\n",
+								__func__, ret);
+
+				schedule_delayed_work(&info->work_dvfs_chg,
+					msecs_to_jiffies(TOUCH_BOOSTER_CHG_TIME));
+
+					info->dvfs_lock_status = true;
+				}
+			}
+		}
+	} else if (on == 2) {
+		if (info->dvfs_lock_status) {
+			cancel_delayed_work(&info->work_dvfs_off);
+			cancel_delayed_work(&info->work_dvfs_chg);
+			schedule_work(&info->work_dvfs_off.work);
+		}
+	}
+	info->dvfs_old_status = on;
+	mutex_unlock(&info->dvfs_lock);
+}
+#endif
+
 static void clear_report_data(struct bt532_ts_info *info)
 {
 	int i;
@@ -1912,6 +2334,13 @@ static void clear_report_data(struct bt532_ts_info *info)
 
 	if (reported)
 		input_sync(info->input_dev);
+#ifdef TSP_BOOSTER
+	if (info->touch_pressed_num != 0) {
+		printk("bt532_ts_device : %s force dvfs off\n", __func__);
+		info->touch_pressed_num = 0;
+		set_dvfs_lock(info, 2, false);
+	}
+#endif
 
 }
 
@@ -1931,6 +2360,9 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 	u32 w;
 	u32 tmp;
 	u8 palm = 0;
+#ifdef TSP_BOOSTER
+	bool touch_press = false;
+#endif
 
 	if (gpio_get_value(info->pdata->gpio_int)) {
 		dev_err(&client->dev, "Invalid interrupt\n");
@@ -2032,6 +2464,9 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 				input_mt_slot(info->input_dev, i);
 				input_mt_report_slot_state(info->input_dev,
 							MT_TOOL_FINGER, 0);
+#ifdef TSP_BOOSTER
+				info->touch_pressed_num--;
+#endif
 			}
 		}
 		memset(&info->reported_touch_info, 0x0, sizeof(struct point_info));
@@ -2040,19 +2475,23 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 		if (reported == true) /* for button event */
 			udelay(100);
 
+#ifdef TSP_BOOSTER
+		goto touch_booster_out;
+#else
 		goto out;
+#endif
 	}
 #ifdef SUPPORTED_PALM_TOUCH
 	if (zinitix_bit_test(info->touch_info.status, BIT_PALM)) {
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-		dev_info(&client->dev, "Palm report\n");
+		dev_dbg(&client->dev, "Palm report\n");
 #endif
 		palm = 1;
 	}
 
 	if (zinitix_bit_test(info->touch_info.status, BIT_PALM_REJECT)) {
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-		dev_info(&client->dev, "Palm reject\n");
+		dev_dbg(&client->dev, "Palm reject\n");
 #endif
 		palm = 2;
 	}
@@ -2093,14 +2532,18 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 
 			info->touch_info.coord[i].x = x;
 			info->touch_info.coord[i].y = y;
-			if (zinitix_bit_test(sub_status, SUB_BIT_DOWN))
+			if (zinitix_bit_test(sub_status, SUB_BIT_DOWN)) {
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 				dev_info(&client->dev, "Finger [%02d] x = %d, y = %d,"
 						" w = %d\n", i, x, y, w);
 #else
 				dev_info(&client->dev, "Finger down\n");
 #endif
-
+#ifdef TSP_BOOSTER
+				info->touch_pressed_num++;
+				touch_press = true;
+#endif
+			}
 			if (w == 0)
 				w = 1;
 
@@ -2152,7 +2595,9 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 			memset(&info->touch_info.coord[i], 0x0, sizeof(struct coord));
 			input_mt_slot(info->input_dev, i);
 			input_mt_report_slot_state(info->input_dev, MT_TOOL_FINGER, 0);
-
+#ifdef TSP_BOOSTER
+			info->touch_pressed_num--;
+#endif
 		} else {
 			memset(&info->touch_info.coord[i], 0x0, sizeof(struct coord));
 		}
@@ -2160,6 +2605,17 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 	memcpy((char *)&info->reported_touch_info, (char *)&info->touch_info,
 		sizeof(struct point_info));
 	input_sync(info->input_dev);
+
+#ifdef TSP_BOOSTER
+touch_booster_out:
+	if (!!info->touch_pressed_num){
+		if(touch_press)
+			set_dvfs_lock(info, 1, true);
+	}
+	else{
+		set_dvfs_lock(info, 0, false);
+	}
+#endif
 
 out:
 	if (info->work_state == NORMAL) {
@@ -2278,7 +2734,9 @@ static void bt532_input_close(struct input_dev *dev)
 static bool ts_set_touchmode(u16 value)
 {
 	int i;
+#ifndef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
 	u16	reg_val;
+#endif
 
 	disable_irq(misc_info->irq);
 
@@ -2294,13 +2752,15 @@ static bool ts_set_touchmode(u16 value)
 	misc_info->work_state = SET_MODE;
 
 	if (value == TOUCH_DND_MODE) {
+#ifndef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
 		read_data(misc_info->client, 0x011e,	(u8 *)&reg_val, 2);
 		zinitix_bit_clr(reg_val, 1);
 		write_reg(misc_info->client, 0x011e,	reg_val);
+#endif
 
 		if (write_reg(misc_info->client, BT532_DND_SHIFT_VALUE,
 						SEC_DND_SHIFT_VALUE) != I2C_SUCCESS)
-			dev_err(&misc_info->client->dev, "Failed to set DND_SHIFT_VALUE\n");		
+			dev_err(&misc_info->client->dev, "Failed to set DND_SHIFT_VALUE\n");
 		if (write_reg(misc_info->client, BT532_DND_N_COUNT,
 			SEC_DND_N_COUNT) != I2C_SUCCESS)
 			printk(KERN_INFO "[zinitix_touch] TEST Mode : "
@@ -2315,9 +2775,11 @@ static bool ts_set_touchmode(u16 value)
 					"Fail to set BT532_AFE_FREQUENCY %d.\n", SEC_DND_FREQUENCY);
 	}
 	if (value == TOUCH_PDND_MODE) {
+#ifndef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
 		read_data(misc_info->client, 0x011e,	(u8 *)&reg_val, 2);
 		zinitix_bit_clr(reg_val, 1);
 		write_reg(misc_info->client, 0x011e,	reg_val);
+#endif
 		if (write_reg(misc_info->client, BT532_DND_N_COUNT,
 			SEC_PDND_N_COUNT) != I2C_SUCCESS)
 			printk(KERN_INFO "[zinitix_touch] TEST Mode : "
@@ -2332,11 +2794,13 @@ static bool ts_set_touchmode(u16 value)
 					"Fail to set BT532_AFE_FREQUENCY %d.\n", SEC_PDND_FREQUENCY);
 	}
 	else if(misc_info->touch_mode == TOUCH_DND_MODE || misc_info->touch_mode == TOUCH_PDND_MODE) {
+#ifndef ZINITIX_NEW_TA_COVER_REGISTER_0x11F
 		bt532_set_ta_status(misc_info);
+#endif
 
 		if (write_reg(misc_info->client, BT532_DND_SHIFT_VALUE,
 						misc_info->cap_info.shift_value) != I2C_SUCCESS)
-			dev_err(&misc_info->client->dev, "Failed to set DND_SHIFT_VALUE\n");				
+			dev_err(&misc_info->client->dev, "Failed to set DND_SHIFT_VALUE\n");
 		if (write_reg(misc_info->client, BT532_DND_N_COUNT,
 			misc_info->cap_info.N_cnt) != I2C_SUCCESS)
 			printk(KERN_INFO "[zinitix_touch] TEST Mode : "
@@ -2470,7 +2934,7 @@ static void fw_update(void *device_data)
 	case UMS:
 		old_fs = get_fs();
 		set_fs(get_ds());
-
+                checkUMSMode = true;
 		snprintf(fw_path, MAX_FW_PATH, "/sdcard/%s", TSP_FW_FILENAME);
 		fp = filp_open(fw_path, O_RDONLY, 0);
 		if (IS_ERR(fp)) {
@@ -2509,8 +2973,10 @@ static void fw_update(void *device_data)
 		if(ret<0) {
 			kfree(buff);
 			info->factory_info->cmd_state = 3;
+                        checkUMSMode = false;
 			return;
 		}
+                checkUMSMode = false;
 		break;
 
 	default:
@@ -2556,7 +3022,9 @@ static void get_fw_ver_bin(void *device_data)
 	vendor_id = ntohs(*(u16 *)&m_firmware_data[0x6b22]);
 	version = (u32)((u32)(hw_id & 0xff) << 16) | ((fw_version & 0xf ) << 12)
 				| ((fw_minor_version & 0xf) << 8) | (reg_version & 0xff);
+#if !defined(CONFIG_SEC_DEGAS_PROJECT)
         config_version = version;
+#endif
 	length = sizeof(vendor_id);
 	snprintf(finfo->cmd_buff, length + 1, "%s", (u8 *)&vendor_id);
 	snprintf(finfo->cmd_buff + length, sizeof(finfo->cmd_buff) - length,
@@ -2710,8 +3178,11 @@ static void get_config_ver(void *device_data)
         const char *model_name = info->pdata->pname;
 
 	set_default_result(info);
-
+#if !defined(CONFIG_SEC_DEGAS_PROJECT)
 	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),"%s_ZI_%x", model_name,config_version);
+#else
+	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),"%s_ZI_%s", model_name,CONFIG_DATE);
+#endif
 	set_cmd_result(info, finfo->cmd_buff,
 		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 	finfo->cmd_state = OK;
@@ -2721,6 +3192,46 @@ static void get_config_ver(void *device_data)
 
 	return;
 }
+
+#if defined(USE_ACTIVE_REPORT_RATE)	
+static void report_rate(void *device_data)
+{
+	struct bt532_ts_info *info = (struct bt532_ts_info *)device_data;
+	struct i2c_client *client = info->client;
+	struct tsp_factory_info *finfo = info->factory_info;
+	int report_rate_cmd;
+
+	if((info->work_state == SUSPEND) || (info->work_state == PROBE)) {
+		dev_err(&client->dev, "%s: probe is not done or suspend mode work_state : %d \n",
+				__func__,info->work_state);
+                finfo->cmd_state = NOT_APPLICABLE;
+		return;	
+	}
+
+	set_default_result(info);	
+
+	if ((finfo->cmd_param[0] < 0) ||
+		(finfo->cmd_param[0] > 2)) {
+		dev_err(&client->dev, "%s: parameter %d is wrong\n",
+			__func__, finfo->cmd_param[0]);
+	        finfo->cmd_state = FAIL;
+		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "FAIL");
+		goto out;
+	}	
+	report_rate_cmd = finfo->cmd_param[0];
+	ts_lpm_level_set(report_rate_cmd);
+
+	finfo->cmd_state = OK;
+	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK");
+
+out:
+	set_cmd_result(info, finfo->cmd_buff,
+		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+
+	dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
+		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));	
+}
+#endif
 
 #define BT532_CHIP_NAME "BT532"
 
@@ -2847,6 +3358,245 @@ static void run_reference_read(void *device_data)
 		strlen(finfo->cmd_buff));
 
 	return;
+}
+
+static bool run_reference_PDiff_read(void *device_data, const u16 h_diff[][17], const u16 v_diff[][18], int bHidden1, int bMenu, int bBack, int bHidden2 ) //DND
+{
+	struct bt532_ts_info *info = (struct bt532_ts_info *)device_data;
+	int i, j, diff_val, pre_val, next_val, x_num, y_num, nButton;
+	bool pass = true;
+	int buttons[4] = {bHidden1,bMenu, bBack, bHidden2};
+#if 1
+	char print_diff[29*18]={0,};
+#endif
+
+	ts_set_touchmode(TOUCH_PDND_MODE);
+	get_raw_data(info, (u8 *)info->dnd_data, 10);
+	ts_set_touchmode(TOUCH_POINT_MODE);
+
+	x_num = info->cap_info.x_node_num;
+	y_num = info->cap_info.y_node_num;
+
+	printk("%s : ++++++ DND SPEC +++++++++\n",__func__);
+	for(i = 0; i < x_num; i++)
+	{
+		printk("%s : ",__func__);
+		for(j = 0; j < y_num; j++)
+		{
+			printk("%5d ", info->dnd_data[i*y_num+j]);
+		}
+	printk("\n");
+	}
+	printk("%s : ------- DND SPEC ----------\n",__func__);
+	printk("%s : TSP Diff test scale factor = %d\n", __func__, info->ref_scale_factor);
+	printk("%s : H Diff start\n",__func__);
+	//H DIff
+	info->hdiff_max_x = info->hdiff_max_y = info->hdiff_min_x = info->hdiff_min_y = 0;
+	info->hdiff_max_val =-32768;
+	info->hdiff_min_val =32767;
+
+	for(i = 0; i < x_num - 1; i++)
+	{
+		for(j = 0; j <y_num-1; j++)
+		{
+			//printk("%d ", info->dnd_data[i*info->cap_info.y_node_num+j]);
+			next_val = info->dnd_data[(i*y_num)+(j+1)];
+			pre_val = info->dnd_data[(i*y_num)+j];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			pre_val = (info->ref_scale_factor == 100)?((s16)h_diff[i][j]):((s16)(((s32)h_diff[i][j] * info->ref_scale_factor) /100));
+			if(diff_val > pre_val)
+				pass = false;
+#if 1
+			print_diff[i*y_num+j] = diff_val;
+#endif
+			if(info->hdiff_max_val < diff_val-pre_val) {
+				info->hdiff_max_val = diff_val-pre_val;
+				info->hdiff_max_x = i;
+				info->hdiff_max_y= j+1;
+			}
+			if(info->hdiff_min_val > diff_val - pre_val) {
+				info->hdiff_min_val =  diff_val - pre_val;
+				info->hdiff_min_x = i;
+				info->hdiff_min_y= j+1;
+			}
+		}
+	//printk("\n");
+	}
+#if defined(PDIFF_DEBUG)
+	printk("%s : ++++++ h_diff SPEC +++++++++\n",__func__);
+	for(i = 0; i < x_num-1; i++){
+		printk("%s : ",__func__);
+		for(j = 0; j < y_num-1; j++)
+			printk("%5d ",(u16)h_diff[i][j]);
+		printk("\n");
+	}
+	printk("%s : ------- h_diff SPEC ----------\n",__func__);
+	printk("%s : ++++++ calculated h_diff SPEC +++++++++\n",__func__);
+	for(i = 0; i < x_num-1; i++){
+		printk("%s : ",__func__);
+		for(j = 0; j < y_num-1; j++)
+			printk("%5d ",print_diff[i*y_num+j]);
+		printk("\n");
+	}
+	printk("%s : ------- calculated h_diff SPEC ----------\n",__func__);
+#endif
+	printk("%s :",__func__);
+	if(pass)
+		printk("H Diff pass\n");
+	else
+		printk("H Diff fail\n");
+
+	printk("%s : V Diff start\n",__func__);
+	info->hdiff_max_x = info->hdiff_max_y = info->hdiff_min_x = info->hdiff_min_y = 0;
+	info->vdiff_max_val =-32768;
+	info->vdiff_min_val =32767;
+	//V DIff  View
+	for(i=0; i < x_num-2; i++)
+	{
+		for(j=0; j<y_num; j++)
+		{
+			//printk("%d ", info->dnd_data[i*info->cap_info.y_node_num+j]);
+			next_val = info->dnd_data[(i*y_num)+j];
+			pre_val = info->dnd_data[(i*y_num)+j+y_num];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			pre_val = (info->ref_scale_factor == 100)?((s16)v_diff[i][j]):((s16)(((s32)v_diff[i][j] * info->ref_scale_factor) /100));
+			if(diff_val > pre_val)
+				pass = false;
+#if 1
+			print_diff[i*y_num+j] = diff_val;
+#endif
+			if(info->vdiff_max_val < diff_val - pre_val) {
+				info->vdiff_max_val = diff_val -pre_val;
+				info->vdiff_max_x = i;
+				info->vdiff_max_y= j+1;
+			}
+			if(info->vdiff_min_val > diff_val - pre_val) {
+				info->vdiff_min_val = diff_val - pre_val;
+				info->vdiff_min_x = i;
+				info->vdiff_min_y= j+1;
+			}
+		}
+	//printk("\n");
+	}
+	printk("%s : ",__func__);
+	if(pass)
+		printk("V Diff view pass\n");
+	else
+		printk("V Diff view fail\n");
+
+#if 1
+	printk(" : ++++++ v_diff SPEC +++++++++\n");
+	for(i=0; i < x_num-2; i++){
+		printk("%s : ",__func__);
+		for(j=0; j < y_num; j++)
+			printk("%5d ",(u16)v_diff[i][j]);
+		printk("\n");
+	}
+	printk("%s : ------- v_diff SPEC ----------\n",__func__);
+	printk("%s : ++++++ calculated v_diff SPEC +++++++++\n",__func__);
+	for(i=0; i < x_num-2; i++){
+		printk("%s : ",__func__);
+		for(j=0; j < y_num; j++)
+			printk("%5d ",print_diff[i*y_num+j]);
+		printk("\n");
+	}
+	printk("%s : ------- calculated v_diff SPEC ----------\n",__func__);
+#endif
+
+	//V DIff  button
+	if ( info->cap_info.button_num)
+	{
+		printk("%s : TSP Button scale = %d\n", __func__, info->ref_scale_factor);
+		printk("%s : TSP Button Diff Spec. = %d %d %d %d\n", __func__,
+			v_diff[x_num-2][buttons[0]], v_diff[x_num-2][buttons[1]],
+			v_diff[x_num-2][buttons[2]], v_diff[x_num-2][buttons[3]]);
+
+		for(i = 0; i < 4; i++)
+		{
+			nButton = buttons[i];
+			if(nButton < 0)
+				continue;
+			next_val = info->dnd_data[(x_num-1)*y_num+nButton];
+			pre_val = info->dnd_data[(x_num-2)*y_num+nButton];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			pre_val = (info->ref_scale_factor == 100)?( (s16)v_diff[x_num-2][nButton]+info->ref_btn_option): \
+												( (s16)(((s32)v_diff[x_num-2][nButton]*info->ref_scale_factor)/100)+info->ref_btn_option);
+
+			if(diff_val > pre_val) {
+			pass = false;
+				if(info->vdiff_max_val < diff_val - pre_val) {
+					info->vdiff_max_val = diff_val - pre_val;
+					info->vdiff_max_x = x_num - 1;
+					info->vdiff_max_y= nButton;
+			}
+				if(info->vdiff_min_val  >diff_val - pre_val) {
+					info->vdiff_min_val = diff_val-pre_val;
+					info->vdiff_min_x = x_num - 1;
+					info->vdiff_min_y= nButton;
+			}
+		}
+#if defined(PDIFF_DEBUG)
+			printk("%s : ",__func__);
+			printk("buttons[%d]'s diff_val is %d\n", i, diff_val);
+#endif
+			}
+			}
+	printk("%s : ",__func__);
+	if(pass)
+		printk("Button Diff pass\n");
+	else
+		printk("Button Diff fail\n");
+
+	return pass;
+}
+
+static void run_reference_PDiff(void *device_data)
+{
+	struct bt532_ts_info *info = (struct bt532_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	char buff[16] = {0};
+	bool	check;
+
+	finfo->cmd_state = 1;
+	set_default_result(info);
+
+	printk("run_ref_diff check hw_id = 0x%04X\n", info->cap_info.hw_id);
+
+#ifdef NOT_SUPPORTED_TOUCH_DUMMY_KEY
+	check = run_reference_PDiff_read(device_data, dnd_h_diff_00, dnd_v_diff_00, -1, 4, 13, -1);
+#else
+	check = run_reference_PDiff_read(device_data, dnd_h_diff_00, dnd_v_diff_00, 2, 4, 13, 15);
+#endif
+	/*
+	if( info->cap_info.hw_id == TSP_HW_ID_INDEX_0) {  // Check TSP FW ID
+		printk("HW_ID_INDEX_0\n");
+		check = run_reference_PDiff_read(device_data, dnd_h_diff_00, dnd_v_diff_00, 2, 4, 13, 15);
+	}
+	else if( info->cap_info.hw_id == TSP_HW_ID_INDEX_1){	 // Check TSP FW ID
+		printk("HW_ID_INDEX_1\n");
+		check = run_reference_PDiff_read(device_data, dnd_h_diff_03, dnd_v_diff_03, 2, 4, 13, 15);
+		}
+	else{
+			printk("Module ETC\n");
+		check = run_reference_PDiff_read(device_data, dnd_h_diff_00, dnd_v_diff_00, 2, 4, 13, 15);
+		}
+	*/
+	if(check) {
+		printk("diff pass\n");
+		sprintf(buff, "%s\n", "pass");
+		set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+		finfo->cmd_state = 2;
+	}
+	else {
+		printk("diff fail\n");
+		sprintf(buff, "%s\n", "fail");
+		set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+		finfo->cmd_state = 3;
+	}
+
 }
 
 static void get_reference(void *device_data)
@@ -3059,6 +3809,42 @@ static void get_delta(void *device_data)
 	return;
 }
 
+static void cover_set(struct bt532_ts_info *info){
+	if(g_cover_state == COVER_OPEN){
+		zinitix_bit_clr(m_optional_mode, 2);
+	} else if(g_cover_state == COVER_CLOSED) {
+		zinitix_bit_set(m_optional_mode, 2);
+	}
+	if(info->work_state == SUSPEND || info->work_state == PROBE)
+		return;
+	bt532_set_optional_mode(info, true);
+}
+
+static void clear_cover_mode(void *device_data)
+{
+	struct bt532_ts_info *info = (struct bt532_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	int arg = finfo->cmd_param[0];
+
+	set_default_result(info);
+	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u",
+							(unsigned int) arg);
+
+	g_cover_state = arg;
+
+	cover_set(info);
+
+	dev_info(&info->client->dev, "COVER state = %d\n", g_cover_state);
+	set_cmd_result(info, finfo->cmd_buff,
+					strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	mutex_lock(&finfo->cmd_lock);
+	finfo->cmd_is_running = false;
+	mutex_unlock(&finfo->cmd_lock);
+
+	info->factory_info->cmd_state = OK;
+
+	return;
+}
 /*
 static void run_intensity_read(void *device_data)
 {
@@ -3678,6 +4464,53 @@ err_alloc1:
 }
 #endif
 
+#ifdef SEC_FACTORY_TEST
+static void boost_level(void *device_data)
+{
+	struct bt532_ts_info *info = (struct bt532_ts_info *)device_data;
+	struct i2c_client *client = info->client;
+	struct tsp_factory_info *finfo = info->factory_info;
+
+	int retval = 0;
+
+	dev_info(&client->dev, "%s\n", __func__);
+
+	set_default_result(info);
+
+	info->boost_level = info->factory_info->cmd_param[0];
+
+	dev_info(&client->dev,
+			"%s: boost_level = %d\n",
+			__func__, info->boost_level);
+
+	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK");
+	finfo->cmd_state = OK;
+
+	if (info->boost_level == DVFS_STAGE_NONE) {
+		retval = set_freq_limit(DVFS_TOUCH_ID, -1);
+		if (retval < 0) {
+			dev_err(&info->client->dev,
+					"%s: booster stop failed(%d).\n",
+					__func__, retval);
+			snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "NG");
+			finfo->cmd_state = FAIL;
+
+			info->dvfs_lock_status = false;
+		}
+	}
+
+	set_cmd_result(info, finfo->cmd_buff,
+			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+
+	mutex_lock(&finfo->cmd_lock);
+	finfo->cmd_is_running = false;
+	mutex_unlock(&finfo->cmd_lock);
+
+	finfo->cmd_state = WAITING;
+
+	return;
+}
+#endif
 static int ts_misc_fops_open(struct inode *inode, struct file *filp)
 {
 	return 0;
@@ -4053,7 +4886,7 @@ static int zinitix_init_gpio(struct bt532_ts_platform_data *pdata)
 	gpio_tlmm_config(GPIO_CFG(pdata->gpio_int, 0,
 		GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
 
-#ifndef CONFIG_SEC_MEGA23G_COMMON
+#if !defined(CONFIG_SEC_MEGA23G_COMMON) && !defined(CONFIG_SEC_MEGA2LTE_COMMON) && !defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)
 	ret = gpio_request(pdata->tsp_vendor1, "zinitix_tsp_vendor1");
 	if (ret) {
 		pr_err("[TSP]%s: unable to request zinitix_tsp_vendor1 [%d]\n",
@@ -4174,6 +5007,11 @@ static int bt532_ts_probe_dt(struct device_node *np,
 	return 0;
 
 }
+
+#if defined(CONFIG_FB_MSM8x26_MDSS_CHECK_LCD_CONNECTION)
+extern int get_lcd_attached(void);
+#endif
+
 static int bt532_ts_probe(struct i2c_client *client,
 		const struct i2c_device_id *i2c_id)
 {
@@ -4187,6 +5025,12 @@ static int bt532_ts_probe(struct i2c_client *client,
 	struct device_node *np = client->dev.of_node;
 	zinitix_printk("[TSP]: %s\n", __func__);
 
+#if defined(CONFIG_FB_MSM8x26_MDSS_CHECK_LCD_CONNECTION)
+        if (get_lcd_attached() == 0) {
+                dev_err(&client->dev, "%s : get_lcd_attached()=0 \n", __func__);
+                return -EIO;
+        }
+#endif
 	if (client->dev.of_node) {
 		if (!pdata) {
 			pdata = devm_kzalloc(&client->dev,
@@ -4264,6 +5108,7 @@ static int bt532_ts_probe(struct i2c_client *client,
 	/* power on */
 	if (bt532_power_control(info, POWER_ON_SEQUENCE) == false) {
 		ret = -EPERM;
+		bt532_power_control(info, POWER_OFF);
 		goto err_power_sequence;
 	}
 
@@ -4276,6 +5121,8 @@ static int bt532_ts_probe(struct i2c_client *client,
 	/* init touch mode */
 	info->touch_mode = TOUCH_POINT_MODE;
 	misc_info = info;
+
+	bt532_firmware_check(pdata);
 
 	if (init_touch(info) == false) {
 		ret = -EPERM;
@@ -4390,6 +5237,16 @@ static int bt532_ts_probe(struct i2c_client *client,
 		goto err_irq_of_parse;
 	}
 #endif
+
+#ifdef TSP_BOOSTER
+	mutex_init(&info->dvfs_lock);
+	info->touch_pressed_num = 0;
+	info->dvfs_lock_status = false;
+	info->boost_level = DVFS_STAGE_DUAL;
+	INIT_DELAYED_WORK(&info->work_dvfs_off, set_dvfs_off);
+	INIT_DELAYED_WORK(&info->work_dvfs_chg, change_dvfs_lock);
+#endif
+
 	/* configure irq */
 	info->irq = gpio_to_irq(pdata->gpio_int);
 	if (info->irq < 0){
@@ -4429,8 +5286,13 @@ static int bt532_ts_probe(struct i2c_client *client,
 	}
 #endif
 
-	tsp_charger_status_cb = bt532_charger_status_cb;
-
+	//tsp_charger_status_cb = bt532_charger_status_cb;
+        //Added TSP TA charger callbacks
+	//tsp_charger_status_cb = bt532_charger_status_cb;
+	info->register_cb = zinitix_tsp_register_callback;
+	info->callbacks.inform_charger = bt532_charger_status_cb;
+	if (info->register_cb)
+		info->register_cb(&info->callbacks);
 	return 0;
 
 #ifdef SEC_FACTORY_TEST
@@ -4445,6 +5307,7 @@ err_request_irq:
 	input_unregister_device(info->input_dev);
 err_input_register_device:
 	input_free_device(info->input_dev);
+	bt532_power_control(info, POWER_OFF);
 err_power_sequence:
 err_alloc:
 	kfree(info);
@@ -4532,12 +5395,12 @@ static struct i2c_device_id bt532_idtable[] = {
 	{ }
 };
 
-#if defined(CONFIG_PM)
+/*#if defined(CONFIG_PM)
 static const struct dev_pm_ops bt532_ts_pm_ops = {
 	.suspend = bt532_ts_suspend,
 	.resume = bt532_ts_resume,
 };
-#endif
+#endif*/
 
 static struct i2c_driver bt532_ts_driver = {
 	.probe	= bt532_ts_probe,
@@ -4547,9 +5410,9 @@ static struct i2c_driver bt532_ts_driver = {
 	.driver		= {
 		.owner	= THIS_MODULE,
 		.name	= BT532_TS_DEVICE,
-#if defined(CONFIG_PM)
+/*#if defined(CONFIG_PM)
 		.pm		= &bt532_ts_pm_ops,
-#endif
+#endif*/
 	.of_match_table = zinitix_match_table,
 	},
 };

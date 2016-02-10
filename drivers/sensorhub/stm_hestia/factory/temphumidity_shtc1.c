@@ -70,6 +70,8 @@
 #define MODEL_NAME	"SM-G900K"
 #elif defined(CONFIG_MACH_KLTE_LGT)
 #define MODEL_NAME	"SM-G900L"
+#elif defined(CONFIG_SEC_HESTIA_PROJECT)
+#define MODEL_NAME	"SM-G739F"
 #else
 #define MODEL_NAME	"SM-G900"
 #endif
@@ -249,6 +251,15 @@ static int get_cp_thm_value(struct ssp_data *data)
 	int err = 0;
 	struct qpnp_vadc_result results;
 		mutex_lock(&data->cp_temp_adc_lock);
+#if defined(CONFIG_SEC_HESTIA_PROJECT)
+	err = qpnp_vadc_read(ssp_vadc, P_MUX5_1_1, &results);
+		mutex_unlock(&data->cp_temp_adc_lock);
+		if (err) {
+		pr_err("%s : error reading chn %d, rc = %d\n",
+			__func__, P_MUX5_1_1, err);
+			return err;
+		}
+#else
 	err = qpnp_vadc_read(ssp_vadc, LR_MUX6_PU1_AMUX_THM3, &results);
 		mutex_unlock(&data->cp_temp_adc_lock);
 		if (err) {
@@ -256,6 +267,7 @@ static int get_cp_thm_value(struct ssp_data *data)
 			__func__, LR_MUX6_PU2_AMUX_THM3, err);
 			return err;
 		}
+#endif
 	return results.adc_code;
 
 }
@@ -265,6 +277,15 @@ static int get_cp_thm2_value(struct ssp_data *data)
 	int err = 0;
 	struct qpnp_vadc_result results;
 	mutex_lock(&data->cp_temp_adc_lock);
+#if defined(CONFIG_SEC_HESTIA_PROJECT)
+	err = qpnp_vadc_read(ssp_vadc, P_MUX8_1_1, &results);
+	mutex_unlock(&data->cp_temp_adc_lock);
+	if (err) {
+		pr_err("%s : error reading chn %d, rc = %d\n",
+			__func__, P_MUX8_1_1, err);
+		return err;
+	}
+#else
 	err = qpnp_vadc_read(ssp_vadc, LR_MUX8_PU1_AMUX_THM4, &results);
 	mutex_unlock(&data->cp_temp_adc_lock);
 	if (err) {
@@ -272,6 +293,7 @@ static int get_cp_thm2_value(struct ssp_data *data)
 			__func__, LR_MUX8_PU2_AMUX_THM4, err);
 		return err;
 	}
+#endif
 	return results.adc_code;
 }
 
@@ -280,6 +302,15 @@ static int convert_adc_to_temp(struct ssp_data *data, unsigned int adc)
 	int err = 0;
 	struct qpnp_vadc_result results;
 	mutex_lock(&data->cp_temp_adc_lock);
+#if defined(CONFIG_SEC_HESTIA_PROJECT)
+	err = qpnp_vadc_read(ssp_vadc, P_MUX5_1_1, &results);
+	mutex_unlock(&data->cp_temp_adc_lock);
+	if (err) {
+		pr_err("%s : error reading chn %d, rc = %d\n",
+			__func__, P_MUX5_1_1, err);
+		return err;
+	}
+#else
 	err = qpnp_vadc_read(ssp_vadc, LR_MUX6_PU1_AMUX_THM3, &results);
 	mutex_unlock(&data->cp_temp_adc_lock);
 	if (err) {
@@ -287,6 +318,7 @@ static int convert_adc_to_temp(struct ssp_data *data, unsigned int adc)
 			__func__, LR_MUX6_PU2_AMUX_THM3, err);
 		return err;
 	}
+#endif
 
 	return results.physical * 10;
 }
@@ -296,6 +328,15 @@ static int convert_adc_to_temp2(struct ssp_data *data, unsigned int adc)
 	int err = 0;
 	struct qpnp_vadc_result results;
 	mutex_lock(&data->cp_temp_adc_lock);
+#if defined(CONFIG_SEC_HESTIA_PROJECT)
+	err = qpnp_vadc_read(ssp_vadc, P_MUX8_1_1, &results);
+	mutex_unlock(&data->cp_temp_adc_lock);
+	if (err) {
+		pr_err("%s : error reading chn %d, rc = %d\n",
+			__func__, P_MUX8_1_1, err);
+		return err;
+	}
+#else
 	err = qpnp_vadc_read(ssp_vadc, LR_MUX8_PU1_AMUX_THM4, &results);
 	mutex_unlock(&data->cp_temp_adc_lock);
 	if (err) {
@@ -303,7 +344,7 @@ static int convert_adc_to_temp2(struct ssp_data *data, unsigned int adc)
 			__func__, LR_MUX8_PU2_AMUX_THM4, err);
 		return err;
 	}
-
+#endif
 	return results.physical * 10;
 }
 
@@ -317,6 +358,33 @@ static ssize_t temphumidity_name_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%s\n", CHIP_ID);
+}
+
+static ssize_t current_temp_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	pr_info("[SSP] %s - current temp = %d\n",
+		__func__, data->current_temp);
+
+	return sprintf(buf, "%d\n",
+		data->current_temp);
+}
+
+static ssize_t current_temp_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+	int temperature, ret;
+
+	ret = kstrtoint(buf, 10, &temperature);
+
+	data->current_temp = temperature;
+	pr_info("[SSP] %s - current temp = %d\n",
+		__func__, data->current_temp);
+
+	return size;
 }
 
 static ssize_t engine_version_show(struct device *dev,
@@ -621,9 +689,11 @@ ssize_t temphumidity_send_accuracy(struct device *dev,
 static DEVICE_ATTR(name, S_IRUGO, temphumidity_name_show, NULL);
 static DEVICE_ATTR(vendor, S_IRUGO, temphumidity_vendor_show, NULL);
 static DEVICE_ATTR(engine_ver, S_IRUGO | S_IWUSR | S_IWGRP,
-	engine_version_show, engine_version_store);
+		engine_version_show, engine_version_store);
 static DEVICE_ATTR(engine_ver2, S_IRUGO | S_IWUSR | S_IWGRP,
-	engine_version2_show, engine_version2_store);
+		engine_version2_show, engine_version2_store);
+static DEVICE_ATTR(current_temp, S_IRUGO | S_IWUSR | S_IWGRP,
+		current_temp_show, current_temp_store);
 static DEVICE_ATTR(cp_thm, S_IRUGO, pam_adc_show, NULL);
 static DEVICE_ATTR(cp_thm2, S_IRUGO, pam_adc2_show, NULL);
 static DEVICE_ATTR(cp_temperature, S_IRUGO, pam_temp_show, NULL);
@@ -642,6 +712,7 @@ static struct device_attribute *temphumidity_attrs[] = {
 	&dev_attr_vendor,
 	&dev_attr_engine_ver,
 	&dev_attr_engine_ver2,
+	&dev_attr_current_temp,
 	&dev_attr_cp_thm,
 	&dev_attr_cp_thm2,
 	&dev_attr_cp_temperature,

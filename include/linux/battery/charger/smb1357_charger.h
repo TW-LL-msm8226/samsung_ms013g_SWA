@@ -174,9 +174,9 @@
 #define DC_SHUTDOWN_BIT			BIT(5)
 #define USE_REGISTER_FOR_CURRENT	BIT(2)
 #define USB_100_500_AC_MASK		SMB135X_MASK(1, 0)
-#define USB_100_VAL			0x01
 #define USB_500_VAL			0x00
-#define USB_AC_VAL			0x02
+#define USB_100_VAL			0x02
+#define USB_AC_VAL			0x01
 
 #define CMD_CHG_REG			0x42
 #define CMD_CHG_EN_MASK			BIT(1)
@@ -325,6 +325,9 @@ ssize_t chg_therm_store_attrs(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
+ssize_t chg_therm_adc_show_attrs(struct device *dev,
+				struct device_attribute *attr, char *buf);
+
 ssize_t chg_current_show_attrs(struct device *dev,
 				struct device_attribute *attr, char *buf);
 
@@ -358,6 +361,13 @@ ssize_t chg_current_store_attrs(struct device *dev,
 	.attr = {.name = #_name, .mode = 0664},	\
 	.show = chg_therm_show_attrs,			\
 	.store = chg_therm_store_attrs,			\
+}
+
+#define CHG_THERM_ADC_ATTR(_name)				\
+{							\
+	.attr = {.name = #_name, .mode = 0444},	\
+	.show = chg_therm_adc_show_attrs,			\
+	.store = NULL,			\
 }
 
 #define CHG_CURRENT_ATTR(_name)				\

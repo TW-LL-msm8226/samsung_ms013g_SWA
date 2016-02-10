@@ -27,7 +27,7 @@
 #include <mach/sec_debug.h>
 #endif
 
-#ifdef CONFIG_SEC_PATEK_PROJECT
+#if defined(CONFIG_SEC_PATEK_PROJECT) || defined(CONFIG_SEC_S_PROJECT)
 	static int check_pkey_press;
 #endif
 
@@ -47,6 +47,7 @@ extern struct class *sec_class;
 #define QPNP_PON_REASON1(base)			(base + 0x8)
 #define QPNP_PON_WARM_RESET_REASON1(base)	(base + 0xA)
 #define QPNP_PON_WARM_RESET_REASON2(base)	(base + 0xB)
+#define QPNP_POFF_REASON1(base)			(base + 0xC)
 #define QPNP_PON_KPDPWR_S1_TIMER(base)		(base + 0x40)
 #define QPNP_PON_KPDPWR_S2_TIMER(base)		(base + 0x41)
 #define QPNP_PON_KPDPWR_S2_CNTL(base)		(base + 0x42)
@@ -61,6 +62,8 @@ extern struct class *sec_class;
 #define QPNP_PON_KPDPWR_RESIN_S2_CNTL2(base)	(base + 0x4B)
 #define QPNP_PON_PS_HOLD_RST_CTL(base)		(base + 0x5A)
 #define QPNP_PON_PS_HOLD_RST_CTL2(base)		(base + 0x5B)
+#define QPNP_PON_WD_RST_S2_CTL(base)		(base + 0x56)
+#define QPNP_PON_WD_RST_S2_CTL2(base)		(base + 0x57)
 #define QPNP_PON_TRIGGER_EN(base)		(base + 0x80)
 #define QPNP_PON_S3_DBC_CTL(base)		(base + 0x75)
 
@@ -84,6 +87,7 @@ extern struct class *sec_class;
 #define QPNP_PON_RESIN_BARK_N_SET		BIT(4)
 #define QPNP_PON_KPDPWR_RESIN_BARK_N_SET	BIT(5)
 
+#define QPNP_PON_WD_EN			BIT(7)
 #define QPNP_PON_RESET_EN			BIT(7)
 #define QPNP_PON_POWER_OFF_MASK			0xF
 
@@ -94,7 +98,6 @@ extern struct class *sec_class;
 #define QPNP_PON_S3_DBC_DELAY_MASK		0x07
 #define QPNP_PON_RESET_TYPE_MAX			0xF
 #define PON_S1_COUNT_MAX			0xF
-#define PON_REASON_MAX				8
 
 #define QPNP_KEY_STATUS_DELAY			msecs_to_jiffies(250)
 #define QPNP_PON_REV_B				0x01
@@ -154,6 +157,26 @@ static const char * const qpnp_pon_reason[] = {
 	[5] = "Triggered from PON1 (secondary PMIC)",
 	[6] = "Triggered from CBL (external power supply)",
 	[7] = "Triggered from KPD (power key press)",
+};
+
+static const char * const qpnp_poff_reason[] = {
+	[0] = "Triggered from SOFT (Software)",
+	[1] = "Triggered from PS_HOLD (PS_HOLD/MSM controlled shutdown)",
+	[2] = "Triggered from PMIC_WD (PMIC watchdog)",
+	[3] = "Triggered from GP1 (Keypad_Reset1)",
+	[4] = "Triggered from GP2 (Keypad_Reset2)",
+	[5] = "Triggered from KPDPWR_AND_RESIN"
+		"(Simultaneous power key and reset line)",
+	[6] = "Triggered from RESIN_N (Reset line/Volume Down Key)",
+	[7] = "Triggered from KPDPWR_N (Long Power Key hold)",
+	[8] = "N/A",
+	[9] = "N/A",
+	[10] = "N/A",
+	[11] = "Triggered from CHARGER (Charger ENUM_TIMER, BOOT_DONE)",
+	[12] = "Triggered from TFT (Thermal Fault Tolerance)",
+	[13] = "Triggered from UVLO (Under Voltage Lock Out)",
+	[14] = "Triggered from OTST3 (Overtemp)",
+	[15] = "Triggered from STAGE3 (Stage 3 reset)",
 };
 
 static int
@@ -289,6 +312,32 @@ int qpnp_pon_is_warm_reset(void)
 EXPORT_SYMBOL(qpnp_pon_is_warm_reset);
 
 /**
+ * qpnp_pon_wd_config - Disable the wd in a warm reset.
+ * @enable: to enable or disable the PON watch dog
+ *
+ * Returns = 0 for operate successfully, < 0 for errors
+ */
+int qpnp_pon_wd_config(bool enable)
+{
+	struct qpnp_pon *pon = sys_reset_dev;
+	int rc = 0;
+
+	if (!pon)
+		return -EPROBE_DEFER;
+
+	rc = qpnp_pon_masked_write(pon, QPNP_PON_WD_RST_S2_CTL2(pon->base),
+			QPNP_PON_WD_EN, enable ? QPNP_PON_WD_EN : 0);
+	if (rc)
+		dev_err(&pon->spmi->dev,
+				"Unable to write to addr=%x, rc(%d)\n",
+				QPNP_PON_WD_RST_S2_CTL2(pon->base), rc);
+
+	return rc;
+}
+EXPORT_SYMBOL(qpnp_pon_wd_config);
+
+
+/**
  * qpnp_pon_trigger_config - Configures (enable/disable) the PON trigger source
  * @pon_src: PON source to be configured
  * @enable: to enable or disable the PON trigger
@@ -385,10 +434,10 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 					(pon_rt_sts & pon_rt_bit));
 	input_sync(pon->pon_input);
 
-#ifdef CONFIG_SEC_PATEK_PROJECT // 107 = key_end / end call key , 116 = key_power / hold key
-	if((cfg->key_code == 107) && (pon_rt_sts & pon_rt_bit)){
+#ifdef CONFIG_SEC_PATEK_PROJECT
+	if((cfg->key_code == KEY_END) && (pon_rt_sts & pon_rt_bit)){
 		pon->powerkey_state = 1;
-	}else if((cfg->key_code == 107) && !(pon_rt_sts & pon_rt_bit)){
+	}else if((cfg->key_code == KEY_END) && !(pon_rt_sts & pon_rt_bit)){
 		pon->powerkey_state = 0;
 	}
 #else
@@ -415,13 +464,13 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	sec_debug_check_crash_key(cfg->key_code, pon->powerkey_state);
 #endif
 #endif
-#ifdef CONFIG_SEC_PATEK_PROJECT
+#if defined(CONFIG_SEC_PATEK_PROJECT) || defined(CONFIG_SEC_S_PROJECT)
 	check_pkey_press=pon->powerkey_state;
 #endif
 	return 0;
 }
 
-#ifdef CONFIG_SEC_PATEK_PROJECT
+#if defined(CONFIG_SEC_PATEK_PROJECT) || defined(CONFIG_SEC_S_PROJECT)
 int check_short_pkey(void)
 {
 	return check_pkey_press;
@@ -566,7 +615,8 @@ qpnp_config_pull(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
 	u8 pull_bit;
 
 #if defined(CONFIG_SEC_K_PROJECT) || \
-	defined(CONFIG_SEC_KACTIVE_PROJECT) || defined(CONFIG_SEC_KSPORTS_PROJECT)
+	defined(CONFIG_SEC_KACTIVE_PROJECT) || defined(CONFIG_SEC_KSPORTS_PROJECT) || \
+	defined(CONFIG_SEC_S_PROJECT) || defined(CONFIG_SEC_PATEK_PROJECT)
 	/* Do nothing in case of KPDPWR_RESIN*/
 	if (cfg->pon_type == PON_KPDPWR_RESIN)
 		return 0;
@@ -667,7 +717,7 @@ qpnp_config_reset(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
 	/* For Millet VZW and Mattise VZW models always do warm reset */
 #if defined(CONFIG_MACH_MATISSELTE_VZW) || defined(CONFIG_MACH_MILLETLTE_VZW)
 		cfg->s2_type = 1;
-#elif defined(CONFIG_SEC_MILLET_PROJECT)
+#elif defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_MACH_MEGA23GEUR_OPEN) || defined(CONFIG_MACH_MEGA2LTE_KTT)
 		cfg->s2_type = 8;  //dVDD hard reset
 #elif defined(CONFIG_MACH_MATISSE3G_CHN_OPEN) || defined(CONFIG_MACH_MILLET3G_CHN_OPEN)
 		cfg->s2_type = 8;  //dVDD reset
@@ -679,11 +729,11 @@ qpnp_config_reset(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
 #endif
 
 #ifdef CONFIG_SEC_DEBUG
-#ifdef CONFIG_MACH_KANAS3G_CTC
+#if defined(CONFIG_MACH_KANAS3G_CTC) || defined(CONFIG_MACH_CHAGALL_LTE) || defined(CONFIG_MACH_KLIMT_LTE)
 	if (sec_debug_is_enabled()) {
-		cfg->s2_type = 1;
+		cfg->s2_type = 1;	// warm reset
 	} else {
-		cfg->s2_type = 8;
+		cfg->s2_type = 8;	// dVdd hard reset
 	}
 #endif
 #endif
@@ -1039,7 +1089,7 @@ static int __devinit qpnp_pon_config_init(struct qpnp_pon *pon)
 			 * Get the reset parameters (bark debounce time and
 			 * reset debounce time) for the reset line.
 			 */
-#ifdef CONFIG_MACH_KLTE_VZW
+#if defined(CONFIG_MACH_KLTE_VZW) || defined(CONFIG_MACH_CHAGALL_VZW)
 			rc = of_property_read_u32(pp, "qcom,s1-timer2",
 							&cfg->s1_timer);
 #else
@@ -1056,7 +1106,7 @@ static int __devinit qpnp_pon_config_init(struct qpnp_pon *pon)
 					"Incorrect S1 debounce time\n");
 				return -EINVAL;
 			}
-#ifdef CONFIG_MACH_KLTE_VZW
+#if defined(CONFIG_MACH_KLTE_VZW) || defined(CONFIG_MACH_CHAGALL_VZW)
 			rc = of_property_read_u32(pp, "qcom,s2-timer2",
 							&cfg->s2_timer);
 #else
@@ -1094,8 +1144,12 @@ static int __devinit qpnp_pon_config_init(struct qpnp_pon *pon)
 		rc = of_property_read_u32(pp, "linux,code", &cfg->key_code);
 
 #ifdef CONFIG_SEC_PATEK_PROJECT
-		cfg->key_code = 107;
-		dev_err(&pon->spmi->dev, "patek power key code changed to %d (116)\n", cfg->key_code);
+		if(cfg->key_code == 116){
+			dev_err(&pon->spmi->dev,
+				"patek power key code changed to %d(%d)\n",
+				KEY_END, cfg->key_code);
+			cfg->key_code = KEY_END;
+		}
 #else
 		if (rc && rc != -EINVAL) {
 			dev_err(&pon->spmi->dev,
@@ -1305,7 +1359,8 @@ static int __devinit qpnp_pon_probe(struct spmi_device *spmi)
 	struct device_node *itr = NULL;
 	u32 delay = 0, s3_debounce = 0;
 	int rc, sys_reset, index;
-	u8 pon_sts = 0;
+	u8 pon_sts = 0, buf[2];
+	u16 poff_sts = 0;
 	struct device *sec_powerkey;
 	int ret;
 
@@ -1355,14 +1410,38 @@ static int __devinit qpnp_pon_probe(struct spmi_device *spmi)
 		dev_err(&pon->spmi->dev, "Unable to read PON_RESASON1 reg\n");
 		return rc;
 	}
-	index = ffs(pon_sts);
-	if ((index > PON_REASON_MAX) || (index < 0))
-		index = 0;
 
+	index = ffs(pon_sts) - 1;
 	cold_boot = !qpnp_pon_is_warm_reset();
-	pr_info("PMIC@SID%d Power-on reason: %s and '%s' boot\n",
-		pon->spmi->sid, index ? qpnp_pon_reason[index - 1] :
-		"Unknown", cold_boot ? "cold" : "warm");
+	if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0)
+		dev_info(&pon->spmi->dev,
+			"PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
+			pon->spmi->sid, cold_boot ? "cold" : "warm");
+	else
+		dev_info(&pon->spmi->dev,
+			"PMIC@SID%d Power-on reason: %s and '%s' boot\n",
+			pon->spmi->sid, qpnp_pon_reason[index],
+			cold_boot ? "cold" : "warm");
+
+	/* POFF reason */
+	rc = spmi_ext_register_readl(pon->spmi->ctrl, pon->spmi->sid,
+				QPNP_POFF_REASON1(pon->base),
+				buf, 2);
+	if (rc) {
+		dev_err(&pon->spmi->dev, "Unable to read POFF_RESASON regs\n");
+		return rc;
+	}
+	poff_sts = buf[0] | (buf[1] << 8);
+	index = ffs(poff_sts) - 1;
+	if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0)
+		dev_info(&pon->spmi->dev,
+				"PMIC@SID%d: Unknown power-off reason\n",
+				pon->spmi->sid);
+	else
+		dev_info(&pon->spmi->dev,
+				"PMIC@SID%d: Power-off reason: %s\n",
+				pon->spmi->sid,
+				qpnp_poff_reason[index]);
 
 	rc = of_property_read_u32(pon->spmi->dev.of_node,
 				"qcom,pon-dbc-delay", &delay);

@@ -53,7 +53,7 @@ __stringify(CY_DRIVER_NAME)		    \
 
 /* FW VERSION */
 #define CY_HW_VERSION 0x02
-#define CY_FW_VERSION 0x1000
+#define CY_FW_VERSION 0x1900
 
 enum cyttsp5_core_platform_flags {
 	CY_CORE_FLAG_NONE,
@@ -116,15 +116,6 @@ struct cyttsp5_core_platform_data {
 		struct device *dev);
 	struct touch_settings *sett[CY_TOUCH_SETTINGS_MAX];
 	u32 flags;
-#ifdef CONFIG_SEC_PATEK_PROJECT
-	int tsp_sel;
-	int tsp_sda;
-	int tsp_scl;
-	int cresetb;
-	int num_of_supply;
-	const char **name_of_supply;
-	struct regulator_bulk_data *supplies;
-#endif
 };
 
 struct touch_framework {

@@ -39,7 +39,7 @@
 
 #if defined(CONFIG_LEDS_CLASS) || (defined(CONFIG_LEDS_CLASS_MODULE) && \
 	defined(CONFIG_MMC_SDHCI_MODULE))
-#if !defined(CONFIG_SEC_K_PROJECT) && !defined(CONFIG_SEC_H_PROJECT) && !defined(CONFIG_SEC_FRESCO_PROJECT)
+#if !defined(CONFIG_SEC_K_PROJECT) && !defined(CONFIG_SEC_H_PROJECT) && !defined(CONFIG_SEC_FRESCO_PROJECT) && !defined(CONFIG_MACH_CHAGALL_KDI)
 #define SDHCI_USE_LEDS_CLASS
 #endif
 #endif
@@ -48,8 +48,6 @@
 
 static unsigned int debug_quirks = 0;
 static unsigned int debug_quirks2;
-
-extern unsigned int system_rev;
 
 static void sdhci_finish_data(struct sdhci_host *);
 
@@ -1180,7 +1178,7 @@ static void sdhci_finish_data(struct sdhci_host *host)
 		tasklet_schedule(&host->finish_tasklet);
 }
 
-#define SDHCI_REQUEST_TIMEOUT	10 /* Default request timeout in seconds */
+#define SDHCI_REQUEST_TIMEOUT	20 /* Default request timeout in seconds */
 
 static void sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 {
@@ -1620,6 +1618,7 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct sdhci_host *host;
 	bool present;
 	unsigned long flags;
+	u32 tuning_opcode;
 
 	host = mmc_priv(mmc);
 
@@ -1679,14 +1678,26 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		 * is no on-going data transfer. If so, we need to execute
 		 * tuning procedure before sending command.
 		 */
-		if ((host->flags & SDHCI_NEEDS_RETUNING) &&
+		if ((mrq->cmd->opcode != MMC_SEND_TUNING_BLOCK) &&
+		    (mrq->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS400) &&
+		    (mrq->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS200) &&
+		    (host->flags & SDHCI_NEEDS_RETUNING) &&
 		    !(present_state & (SDHCI_DOING_WRITE | SDHCI_DOING_READ))) {
-			spin_unlock_irqrestore(&host->lock, flags);
-			sdhci_execute_tuning(mmc, mrq->cmd->opcode);
-			spin_lock_irqsave(&host->lock, flags);
+			if (mmc->card) {
+				/* eMMC uses cmd21 but sd and sdio use cmd19 */
+				tuning_opcode =
+					mmc->card->type == MMC_TYPE_MMC ?
+					MMC_SEND_TUNING_BLOCK_HS200 :
+					MMC_SEND_TUNING_BLOCK;
+				host->mrq = NULL;
+				host->flags &= ~SDHCI_NEEDS_RETUNING;
+				spin_unlock_irqrestore(&host->lock, flags);
+				sdhci_execute_tuning(mmc, tuning_opcode);
+				spin_lock_irqsave(&host->lock, flags);
 
-			/* Restore original mmc_request structure */
-			host->mrq = mrq;
+				/* Restore original mmc_request structure */
+				host->mrq = mrq;
+			}
 		}
 
 		if (mrq->sbc && !(host->flags & SDHCI_AUTO_CMD23))
@@ -2135,6 +2146,10 @@ static int sdhci_do_start_signal_voltage_switch(struct sdhci_host *host,
 
 			/* Wait for 5ms */
 			usleep_range(5000, 5500);
+#if defined(CONFIG_SEC_PATEK_PROJECT)
+			/* Patek needs enough time margin to Voltage switch */
+			usleep_range(15000, 20000);
+#endif
 
 			ctrl = sdhci_readw(host, SDHCI_HOST_CONTROL2);
 			if (ctrl & SDHCI_CTRL_VDD_180) {
@@ -2691,6 +2706,7 @@ static void sdhci_tuning_timer(unsigned long data)
 static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 {
 	u16 auto_cmd_status;
+	u32 command;
 	BUG_ON(intmask == 0);
 
 	if (!host->cmd) {
@@ -2725,21 +2741,14 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 			host->cmd->error = -EILSEQ;
 	}
 
-	SDHCI_TRACE_IRQ(host, "%lld: %s: cmd-err intmask: 0x%x",
-				ktime_to_ms(ktime_get()), __func__, intmask);
-
-	if (host->quirks2 & SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING) {
-		if ((host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS400) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK)) {
-			if (intmask & SDHCI_INT_CRC) {
-				sdhci_reset(host, SDHCI_RESET_CMD);
-				host->cmd->error = 0;
-			}
-		}
-	}
-
 	if (host->cmd->error) {
+		command = SDHCI_GET_CMD(sdhci_readw(host,
+						    SDHCI_COMMAND));
+		if (host->cmd->error == -EILSEQ &&
+		    (command != MMC_SEND_TUNING_BLOCK_HS400) &&
+		    (command != MMC_SEND_TUNING_BLOCK_HS200) &&
+		    (command != MMC_SEND_TUNING_BLOCK))
+				host->flags |= SDHCI_NEEDS_RETUNING;
 		tasklet_schedule(&host->finish_tasklet);
 		return;
 	}
@@ -2764,17 +2773,6 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 
 		/* The controller does not support the end-of-busy IRQ,
 		 * fall through and take the SDHCI_INT_RESPONSE */
-	}
-
-	if (host->quirks2 & SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING) {
-		if ((host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS400) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200) ||
-			(host->cmd->opcode == MMC_SEND_TUNING_BLOCK)) {
-			if (intmask & SDHCI_INT_CRC) {
-				sdhci_finish_command(host);
-				return;
-			}
-		}
 	}
 
 	if (intmask & SDHCI_INT_RESPONSE)
@@ -2865,14 +2863,16 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 		host->data->error = -EIO;
 	}
 	if (host->data->error) {
-		if ((intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_TIMEOUT)) &&
-		    (host->quirks2 & SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING)) {
+		if (intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_TIMEOUT)) {
 			command = SDHCI_GET_CMD(sdhci_readw(host,
 							    SDHCI_COMMAND));
 			if ((command != MMC_SEND_TUNING_BLOCK_HS400) &&
 			    (command != MMC_SEND_TUNING_BLOCK_HS200) &&
-			    (command != MMC_SEND_TUNING_BLOCK))
+			    (command != MMC_SEND_TUNING_BLOCK)) {
 				pr_msg = true;
+				if (intmask & SDHCI_INT_DATA_CRC)
+					host->flags |= SDHCI_NEEDS_RETUNING;
+			}
 		} else {
 			pr_msg = true;
 		}
@@ -3334,21 +3334,20 @@ int sdhci_add_host(struct sdhci_host *host)
 
 	caps[1] = (host->version >= SDHCI_SPEC_300) ?
 		sdhci_readl(host, SDHCI_CAPABILITIES_1) : 0;
-
+	#if defined(CONFIG_MACH_JSGLTE_CHN_CMCC)
+	if(strcmp(host->hw_name, "msm_sdcc.2") == 0) {
+	#else
 	if(strcmp(host->hw_name, "msm_sdcc.3") == 0) {
+	#endif
 		/* Custom: An external level shifter on SDC3 */
 		caps[0] |= (SDHCI_CAN_VDD_330 | SDHCI_CAN_VDD_300 | SDHCI_CAN_VDD_180);
 		/* 
 		 * Disable SD 3.0 feature 
 		 * But, 8974pro after HW_GPIO_06 uses SDR50 Mode 
 		 */
-#ifdef CONFIG_SEC_K_PROJECT
-		if (system_rev >= 6) {
-			caps[1] &= (u32) ~(SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_DDR50);
-			caps[1] |= (u32) (SDHCI_SUPPORT_SDR50);
-		}
-		else
-			caps[1] &= (u32) ~(SDHCI_SUPPORT_SDR50 |SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_DDR50);
+#if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_PATEK_PROJECT)
+		caps[1] &= (u32) ~(SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_DDR50);
+		caps[1] |= (u32) (SDHCI_SUPPORT_SDR50);
 #else
 		caps[1] &= (u32) ~(SDHCI_SUPPORT_SDR50 |SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_DDR50);
 #endif

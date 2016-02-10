@@ -88,11 +88,18 @@
 #define ID_MIN		0
 #define ID_MAX		3
 #define CO_MIN		0
+#ifdef CONFIG_SEC_MEGA2LTE_COMMON
+#define CO_MAX		15
+#else
 #define CO_MAX		10
+#endif
 #define ID_DEFAULT	1
 #define CO_DEFAULT	1
 #define RETRY_LIMIT	10
 
+#ifdef CONFIG_W1_CF
+#define RETRY_LIMIT_CF	5
+#endif
 // misc state
 static unsigned short slave_crc16;
 
@@ -101,6 +108,9 @@ static char special_values[2];
 static char rom_no[8];
 
 int verification = -1, id = 2, color;
+#ifdef CONFIG_W1_SN
+char g_sn[14];
+#endif
 #ifdef CONFIG_W1_CF
 int cf_node = -1;
 #endif
@@ -646,7 +656,7 @@ int w1_ds28el15_read_memory_check(struct w1_slave *sl, int seg, int page, uchar 
 		docrc16(buf[i]);
 
 	if (slave_crc16 != 0xB001)
-		return -1;
+		return -2;
 
 	if (READ_EOP_BYTE(seg) == length) {
 		// check the second CRC16
@@ -657,7 +667,7 @@ int w1_ds28el15_read_memory_check(struct w1_slave *sl, int seg, int page, uchar 
 			docrc16(buf[i]);
 
 		if (slave_crc16 != 0xB001)
-			return -1;
+			return -2;
 	}
 
 	// copy the data to the read buffer
@@ -1891,6 +1901,70 @@ static int w1_ds28el15_get_buffer(struct w1_slave *sl, uchar *rdbuf, int retry_l
 	return ret;
 }
 
+#ifdef CONFIG_W1_SN
+static const int sn_cdigit[19] = {
+	0x0e, 0x0d, 0x1f, 0x0b, 0x1c,
+	0x12, 0x0f, 0x1e, 0x0a, 0x13,
+	0x14, 0x15, 0x19, 0x16, 0x17,
+	0x20, 0x1b, 0x1d, 0x11};
+
+static bool w1_ds28el15_check_digit(const uchar *sn)
+{
+	int i, tmp1 = 0, tmp2 = 0;
+	int cdigit = sn[3];
+
+	if (cdigit == 0x1e)
+		return true;
+
+	for (i=4;i<10;i++)
+		tmp1 += sn[i];
+
+	tmp1 += sn[4]*5;
+	tmp2 = (tmp1 * sn[9] * sn[13]) % 19;
+
+	tmp1 = (sn[10] + sn[12]) * 3 + (sn[11] + sn[13]) * 6 + 14;
+
+	if (cdigit == sn_cdigit[((tmp1 + tmp2) % 19)])
+		return true;
+	else
+		return false;
+}
+
+static uchar w1_ds28el15_char_convert(uchar c)
+{
+	char ctable[36] = {
+	'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+	'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K',
+	'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
+	'X', 'Y', 'Z', 'I', 'O', 'U'};
+
+	return ctable[c];
+}
+
+static void w1_ds28el15_slave_sn(const uchar *rdbuf)
+{
+	int i;
+	u8 sn[15];
+
+	sn[14] = 0;
+
+	if (w1_ds28el15_check_digit(&rdbuf[4])) {
+		for (i = 0 ; i < 14 ; i++)
+			sn[i] = w1_ds28el15_char_convert(rdbuf[i+4]);
+
+		pr_info("%s: %s\n", __func__, sn);
+
+		for (i = 0 ; i < 14 ; i++)
+			g_sn[i] = sn[13 - i];
+	} else {
+		for (i = 0 ; i < 14 ; i++)
+			sn[i] = w1_ds28el15_char_convert(rdbuf[i+4]);
+
+		pr_info("%s: sn is not good %s\n", __func__, sn);
+	}
+}
+#endif
+
 static void w1_ds28el15_update_slave_info(struct w1_slave *sl) {
 	u8 rdbuf[32];
 	int ret, retry = 0;
@@ -1928,6 +2002,10 @@ static void w1_ds28el15_update_slave_info(struct w1_slave *sl) {
 
 	pr_info("%s Read ID(%d) & Color(%d) & Verification State(%d)\n",
 			__func__, id, color, verification);
+
+#ifdef CONFIG_W1_SN
+	w1_ds28el15_slave_sn(&rdbuf[0]);
+#endif
 }
 static int w1_parse_dt(struct w1_slave *sl)
 {
@@ -1973,6 +2051,7 @@ static int w1_ds28el15_add_slave(struct w1_slave *sl)
 {
 	int err = 0;
 #ifdef CONFIG_W1_CF
+	int count = 0, rst = 0;
 	u8 rdbuf[32];
 #endif
 
@@ -2050,11 +2129,17 @@ static int w1_ds28el15_add_slave(struct w1_slave *sl)
 #endif
 	{
 #ifdef CONFIG_W1_CF
-		if (w1_ds28el15_read_memory_check(sl, 0, 0, rdbuf, 32))
+		while (count < RETRY_LIMIT_CF) {
+			rst = w1_ds28el15_read_memory_check(sl, 0, 0, rdbuf, 32);
+			if (rst == 0)
+				break;
+			count++;
+		}
+		if (rst == -2)
 			cf_node = 1;
 		else
 			cf_node = 0;
-		
+
 		pr_info("%s:COVER CLASS(%d)\n", __func__, cf_node);
 #endif
 

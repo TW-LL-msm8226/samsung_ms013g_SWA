@@ -40,6 +40,11 @@
 #define I2C_ADDR_MUIC	(0x4A >> 1)
 #define I2C_ADDR_HAPTIC	(0x90 >> 1)
 
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+int muic_reset_pin = 0;
+EXPORT_SYMBOL_GPL(muic_reset_pin);
+#endif
+
 static struct mfd_cell max77804k_devs[] = {
 	{ .name = "max77804k-charger", },
 	{ .name = "max77804k-led", },
@@ -140,8 +145,10 @@ EXPORT_SYMBOL_GPL(max77804k_update_reg);
 static int of_max77804k_dt(struct device *dev, struct max77804k_platform_data *pdata)
 {
 	struct device_node *np = dev->of_node;
-	struct max77804k_haptic_platform_data *haptic_data;
 	int retval = 0;
+
+#ifdef CONFIG_VIBETONZ
+	struct max77804k_haptic_platform_data *haptic_data;
 
 	haptic_data = kzalloc(sizeof(struct max77804k_haptic_platform_data), GFP_KERNEL);
 	if (haptic_data == NULL)
@@ -150,7 +157,7 @@ static int of_max77804k_dt(struct device *dev, struct max77804k_platform_data *p
 		kfree(haptic_data);
 		return -EINVAL;
 	}
-
+#endif
 	pdata->irq_gpio = of_get_named_gpio_flags(np, "max77804k,irq-gpio",
 				0, &pdata->irq_gpio_flags);
 	pdata->irq_base = irq_alloc_descs(-1, 0, MAX77804K_IRQ_NR, -1);
@@ -159,6 +166,20 @@ static int of_max77804k_dt(struct device *dev, struct max77804k_platform_data *p
 		/* getting a predefined irq_base on dt file	*/
 		of_property_read_u32(np, "max77804k,irq-base", &pdata->irq_base);
 	}
+
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        pdata->irq_reset_gpio = of_get_named_gpio(np, "max77804k,irq-reset-gpio", 0);
+        if (pdata->irq_reset_gpio < 0) {
+                pr_err("%s: failed get max77804k irq-reset-gpio : %d\n",
+                        __func__, pdata->irq_gpio);
+                pdata->irq_reset_gpio = -1;
+                muic_reset_pin = 0;
+        }
+        else
+                muic_reset_pin = 1;
+
+#endif
+
 	pdata->wakeup = of_property_read_bool(np, "max77804k,wakeup");
 	retval = of_get_named_gpio(np, "max77804k,wc-irq-gpio", 0);
 	if (retval < 0)
@@ -168,6 +189,9 @@ static int of_max77804k_dt(struct device *dev, struct max77804k_platform_data *p
 
 	pr_info("%s: irq-gpio: %u \n", __func__, pdata->irq_gpio);
 	pr_info("%s: irq-base: %u \n", __func__, pdata->irq_base);
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        pr_info("%s: irq-reset-gpio: %u \n", __func__, pdata->irq_reset_gpio);
+#endif
 	pr_info("%s: wc-irq-gpio: %u \n", __func__, pdata->wc_irq_gpio);
 #ifdef CONFIG_VIBETONZ
 	of_property_read_u32(np, "haptic,max_timeout", &haptic_data->max_timeout);
@@ -179,8 +203,8 @@ static int of_max77804k_dt(struct device *dev, struct max77804k_platform_data *p
 	pr_info("%s: period: %u \n", __func__, haptic_data->period);
 	pr_info("%s: pwm_id: %u \n", __func__, haptic_data->pwm_id);
 	pdata->haptic_data = haptic_data;
-#endif
 	kfree(haptic_data);
+#endif
 	return 0;
 }
 
@@ -235,6 +259,14 @@ static int max77804k_i2c_probe(struct i2c_client *i2c,
 	if (pdata) {
 		max77804k->irq_base = pdata->irq_base;
 		max77804k->irq_gpio = pdata->irq_gpio;
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+                if (muic_reset_pin)
+                {
+                        max77804k->irq_reset_gpio = pdata->irq_reset_gpio;
+                        gpio_tlmm_config(GPIO_CFG(max77804k->irq_reset_gpio,  0, GPIO_CFG_INPUT,
+                                GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_DISABLE);
+                }
+#endif
 		max77804k->wakeup = pdata->wakeup;
 		gpio_tlmm_config(GPIO_CFG(max77804k->irq_gpio,  0, GPIO_CFG_INPUT,
                 GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_DISABLE);
@@ -442,6 +474,11 @@ static int max77804k_freeze(struct device *dev)
 
 	disable_irq(max77804k->irq);
 
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        if (muic_reset_pin)
+                disable_irq(max77804k->irq_reset);
+#endif
+
 	return 0;
 }
 
@@ -452,6 +489,10 @@ static int max77804k_restore(struct device *dev)
 	int i;
 
 	enable_irq(max77804k->irq);
+#ifdef CONFIG_MUIC_RESET_PIN_ENABLE
+        if (muic_reset_pin)
+                enable_irq(max77804k->irq_reset);
+#endif
 
 	for (i = 0; i < ARRAY_SIZE(max77804k_dumpaddr_pmic); i++)
 		max77804k_write_reg(i2c, max77804k_dumpaddr_pmic[i],

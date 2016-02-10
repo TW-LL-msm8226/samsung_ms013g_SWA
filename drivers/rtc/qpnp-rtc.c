@@ -461,6 +461,7 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	unsigned long irq_flags;
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
 	u8 ctrl_reg;
+	u8 value[4] = {0};
 
 #ifdef CONFIG_RTC_AUTO_PWRON
 	pr_info("[SAPA] irq=%d\n", enabled);
@@ -479,6 +480,15 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	}
 
 	rtc_dd->alarm_ctrl_reg1 = ctrl_reg;
+
+	/* Clear Alarm register */
+	if (!enabled) {
+		rc = qpnp_write_wrapper(rtc_dd, value,
+			rtc_dd->alarm_base + REG_OFFSET_ALARM_RW,
+			NUM_8_BIT_RTC_REGS);
+		if (rc)
+			dev_err(dev, "Clear ALARM value reg failed\n");
+	}
 
 rtc_rw_fail:
 	spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
@@ -500,26 +510,42 @@ static void sapa_load_kparam(struct work_struct *work)
 {
 	int temp1, temp2, temp3;
 	unsigned long pwron_time=(unsigned long)0;
+	bool rc, kparam_ok = true;
+	static unsigned int kparam_count = (unsigned int)0;
 
-	/* there is no initialize of sapa_saved_time */ 
-	//if ( sapa_saved_time.enabled == 0 ) 
-	{
-		sec_get_param(param_index_boot_alarm_set, &temp1);
-		sec_get_param(param_index_boot_alarm_value_l, &temp2);
-		sec_get_param(param_index_boot_alarm_value_h, &temp3);
-		pwron_time = temp3<<4 | temp2;
+	rc = sec_get_param(param_index_boot_alarm_set, &temp1);
+	if(!rc)
+		kparam_ok = false;
+	rc = sec_get_param(param_index_boot_alarm_value_l, &temp2);
+	if(!rc)
+		kparam_ok = false;
+	rc = sec_get_param(param_index_boot_alarm_value_h, &temp3);
+	if(!rc)
+		kparam_ok = false;
 
-		pr_info("[SAPA] %s %x %lu\n", __func__, temp1, pwron_time);
-		if ( temp1 == ALARM_MODE_BOOT_RTC )
-			sapa_saved_time.enabled = 1;
-		else
-			sapa_saved_time.enabled = 0;
-
-		kparam_loaded = 1;
-		
-		rtc_time_to_tm( pwron_time, &sapa_saved_time.time );
-		print_time("[SAPA] saved_time", &sapa_saved_time.time, pwron_time);
+	if(!kparam_ok) {
+		if(kparam_count < 3) {
+			queue_delayed_work(sapa_workq, &sapa_load_param_work, (5*HZ));
+			kparam_count++;
+			pr_err("[SAPA] %s fail, count=%d\n", __func__, kparam_count);
+			return ;
+		} else {
+			pr_err("[SAPA] %s final fail, just go on\n", __func__);
+		}
 	}
+
+	pwron_time = temp3<<4 | temp2;
+
+	pr_info("[SAPA] %s %x %lu\n", __func__, temp1, pwron_time);
+	if ( temp1 == ALARM_MODE_BOOT_RTC )
+		sapa_saved_time.enabled = 1;
+	else
+		sapa_saved_time.enabled = 0;
+
+	kparam_loaded = 1;
+
+	rtc_time_to_tm( pwron_time, &sapa_saved_time.time );
+	print_time("[SAPA] saved_time", &sapa_saved_time.time, pwron_time);
 	/* Bug fix : USB cable or IRQ is disabled in LPM chg */
 	qpnp_rtc0_resetbootalarm(sapa_rtc_dev);
 }
@@ -1192,7 +1218,7 @@ static int __devinit qpnp_rtc_probe(struct spmi_device *spmi)
 		INIT_DELAYED_WORK(&sapa_load_param_work, sapa_load_kparam);
 		INIT_DELAYED_WORK(&sapa_reboot_work, sapa_reboot);
 		INIT_DELAYED_WORK(&sapa_check_work, sapa_check_alarm);
-		queue_delayed_work(sapa_workq, &sapa_load_param_work, (15*HZ));
+		queue_delayed_work(sapa_workq, &sapa_load_param_work, (5*HZ));
 		queue_delayed_work(sapa_check_workq, &sapa_check_work, (60*HZ));
 	}
 #endif

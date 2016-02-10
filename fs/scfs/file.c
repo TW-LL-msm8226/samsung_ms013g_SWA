@@ -2,7 +2,8 @@
  * fs/scfs/file.c
  *
  * Copyright (C) 2014 Samsung Electronics Co., Ltd.
- *   Authors: Jongmin Kim <jm45.kim@samsung.com>
+ *   Authors: Sunghwan Yun <sunghwan.yun@samsung.com>
+ *            Jongmin Kim <jm45.kim@samsung.com>
  *            Sangwoo Lee <sangwoo2.lee@samsung.com>
  *            Inbae Lee   <inbae.lee@samsung.com>
  *
@@ -48,7 +49,7 @@ static int scfs_open(struct inode *inode, struct file *file)
 
 	fi = kmem_cache_zalloc(scfs_file_info_cache, GFP_KERNEL);
 	if (!fi)
-		return SCFS_ERR_OUT_OF_MEMORY;
+		return -ENOMEM;
 #if SCFS_PROFILE_MEM
 	atomic_add(sizeof(struct scfs_file_info), &sbi->kmcache_size);
 #endif
@@ -76,14 +77,12 @@ static int scfs_open(struct inode *inode, struct file *file)
 		}
 	}
 
-	/* should I check whether lower file is RO when upper is not and vice versa? */
 	if (sii->cinfo_array_size && !sii->cinfo_array) {
-		ASSERT(IS_COMPRESSED(sii));
+		ASSERT(IS_COMPRESSABLE(sii));
 		SCFS_PRINT("info size = %d \n", sii->cinfo_array_size);
-		//buf = vmalloc(sii->cinfo_array_size);
 		buf = scfs_cinfo_alloc(sii, sii->cinfo_array_size);
 		if (!buf) {
-			ret = SCFS_ERR_OUT_OF_MEMORY;
+			ret = -ENOMEM;
 			goto out;
 		}
 		pos = i_size_read(sii->lower_inode) - sii->cinfo_array_size -
@@ -147,16 +146,12 @@ static int scfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	struct dentry *dentry = file->f_path.dentry;
 	int ret = 0;
 
-	SCFS_DEBUG_START;
-
 	lower_file = scfs_lower_file(file);
 	lower_file->f_pos = file->f_pos;
 	ret = vfs_readdir(lower_file, filldir, dirent);
 	file->f_pos = lower_file->f_pos;
 	if (ret >= 0)
 		fsstack_copy_attr_atime(dentry->d_inode, lower_file->f_path.dentry->d_inode);
-
-	SCFS_DEBUG_END;
 
 	return ret;
 }
@@ -167,9 +162,7 @@ static int scfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 static long scfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct file *lower_file;
-	long ret = SCFS_ERR_NO_FILE;
-
-	SCFS_DEBUG_START;
+	long ret = -ENOENT;
 
 	lower_file = scfs_lower_file(file);
 
@@ -179,8 +172,6 @@ static long scfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned lo
 		ret = lower_file->f_op->unlocked_ioctl(lower_file, cmd, arg);
 
 out:
-	SCFS_DEBUG_END;
-	
 	return ret;
 }
 
@@ -193,8 +184,6 @@ static long scfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long
 	struct file *lower_file;
 	long ret = SCFS_ERR_NO_FILE;
 
-	SCFS_DEBUG_START;
-	
 	lower_file = scfs_lower_file(file);
 
 	if (!lower_file || !lower_file->f_op)
@@ -203,7 +192,6 @@ static long scfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long
 		ret = lower_file->f_op->compat_ioctl(lower_file, cmd, arg);
 
 out:
-	SCFS_DEBUG_END;
 	return ret;
 }
 #endif
@@ -213,14 +201,10 @@ static int scfs_flush(struct file *file, fl_owner_t id)
 	struct file *lower_file = NULL;
 	int ret = 0;
 
-	SCFS_DEBUG_START;
-	
 	lower_file = scfs_lower_file(file);
 	if (lower_file && lower_file->f_op && lower_file->f_op->flush)
 		ret = lower_file->f_op->flush(lower_file, id);
 
-	SCFS_DEBUG_END;
-	
 	return ret;
 }
 
@@ -228,11 +212,7 @@ static int scfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	int ret = 0;
 
-	SCFS_DEBUG_START;
-
 	ret = vfs_fsync(scfs_lower_file(file), datasync);
-
-	SCFS_DEBUG_END;
 
 	return ret;
 }
@@ -242,31 +222,23 @@ static int scfs_fasync(int fd, struct file *file, int flag)
 	struct file *lower_file = NULL;
 	int ret = 0;
 
-	SCFS_DEBUG_START;
-	
 	lower_file = scfs_lower_file(file);
 	if (lower_file->f_op && lower_file->f_op->fasync)
 		ret = lower_file->f_op->fasync(fd, lower_file, flag);
 
-	SCFS_DEBUG_END;
-	
 	return ret;
 }
 
 static const struct vm_operations_struct scfs_file_vm_ops = {
 	.fault		= filemap_fault,
-	//TODO we may not need this, but for testing we just printk here 
-	//.page_mkwrite   = scfs_page_mkwrite,
 };
 
 static int scfs_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct address_space *mapping = file->f_mapping;
 
-	SCFS_DEBUG_START;
-
 	if (!mapping->a_ops->readpage)
-		return SCFS_ERR_EXEC;
+		return -ENOEXEC;
 
 	SCFS_PRINT("file %s\n", file->f_path.dentry->d_name.name);	
 
@@ -276,10 +248,9 @@ static int scfs_mmap(struct file *file, struct vm_area_struct *vma)
 			file->f_mode,
 			file->f_mode & FMODE_READ,
 			file->f_mode & FMODE_WRITE);
-		return SCFS_ERR_PERMISSION;
+		return -EPERM;
 	}
 
-	//TODO should we touch the file before FMODE_WRITE check?
 	file_accessed(file);
 	vma->vm_ops = &scfs_file_vm_ops;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
@@ -305,9 +276,7 @@ static int scfs_mmap(struct file *file, struct vm_area_struct *vma)
 			vma->vm_flags & VM_MAYWRITE);
 	}
 
-	SCFS_DEBUG_END;
-	
-	return SCFS_SUCCESS;
+	return 0;
 }
 
 /*****************************/

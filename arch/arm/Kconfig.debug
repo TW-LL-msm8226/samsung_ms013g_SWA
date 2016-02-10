@@ -527,4 +527,18 @@ config RESTART_REASON_DDR
 	help
 	  This comes in handy backup, when restart reason saved in IMEM is lost.
 
+config RESTART_REASON_SEC_PARAM
+	bool "Save restart reason in SEC param partition"
+	default n
+	help
+	  Param partition can retain the values across reboot, hence this comes in handy backup, when restart reason saved in IMEM is lost.
+
+
+comment "BSP Feature"
+menuconfig SEC_BSP
+	bool "Samsung TN BSP Feature"
+	default n
+	help
+	  Samsung TN BSP Feature.
+
 endmenu

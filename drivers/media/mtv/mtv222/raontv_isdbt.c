@@ -1,36 +1,21 @@
-/******************************************************************************** 
+/******************************************************************************
 * (c) COPYRIGHT 2010 RAONTECH, Inc. ALL RIGHTS RESERVED.
-* 
-* This software is the property of RAONTECH and is furnished under license by RAONTECH.                
-* This software may be used only in accordance with the terms of said license.                         
-* This copyright noitce may not be remoced, modified or obliterated without the prior                  
-* written permission of RAONTECH, Inc.                                                                 
-*                                                                                                      
-* This software may not be copied, transmitted, provided to or otherwise made available                
-* to any other person, company, corporation or other entity except as specified in the                 
-* terms of said license.                                                                               
-*                                                                                                      
-* No right, title, ownership or other interest in the software is hereby granted or transferred.       
-*                                                                                                      
-* The information contained herein is subject to change without notice and should 
-* not be construed as a commitment by RAONTECH, Inc.                                                                    
-* 
+*
 * TITLE 	  : RAONTECH TV ISDB-T services source file. 
 *
 * FILENAME    : raontv_isdbt.c
 *
-* DESCRIPTION : 
+* DESCRIPTION :
 *		Library of routines to initialize, and operate on, the RAONTECH ISDB-T demod.
 *
-********************************************************************************/
-
-/******************************************************************************** 
+******************************************************************************/
+/******************************************************************************
 * REVISION HISTORY
 *
 *    DATE	  	  NAME				REMARKS
-* ----------  -------------    --------------------------------------------------
-* 07/26/2013  Yang, Maverick   Created.                                                             
-********************************************************************************/
+* ----------  -------------    ------------------------------------------------
+* 07/26/2013  Yang, Maverick   Created.
+******************************************************************************/
 
 #include "raontv_rf.h"
 
@@ -60,11 +45,13 @@ static const RTV_REG_INIT_INFO g_atTopHostInitData[] = {
 static const RTV_REG_INIT_INFO g_atOfdmInitData[] = {
 	{0x21, 0xFF},
 	{0x22, 0xFF},
+	{0x30, 0x28}, //2014-03-14 raontech
 	{0x34, 0x0F},
 	{0x35, 0xFF},
 	{0x36, 0x00},
 	{0x37, 0x86}, //Locking
-	{0x39, 0x5A},
+	{0x39, 0x6A}, //2014-03-14 raontech
+	{0x3A, 0x5F}, //2014-03-14 raontech
 	{0x3B, 0x74},
 	{0x4B, 0x2C},
 	{0x6D, 0x52},
@@ -884,7 +871,7 @@ void rtvISDBT_GetTMCC(RTV_ISDBT_TMCC_INFO *ptTmccInfo)
 //#define DEBUG_LOG_FOR_SCAN
 
 #define MAX_MON_FSM_MS		100
-#define MAX_COARSE_MS		1600
+#define MAX_COARSE_MS		600
 #define MAX_OFDM_RETRY_MS	600
 #define MAX_TMCC_RETRY_MS	3000
 
@@ -899,14 +886,13 @@ INT rtvISDBT_ScanFrequency(UINT nChNum)
 	UINT dwChannelFreq;
 	int pwr_threshold = 0;
 	int peak_pwr = 0;
+	int peak_pwr2 = 0;
 	INT sucess_flag = RTV_CHANNEL_NOT_DETECTED;
 	INT scan_stage = RTV_CHANNEL_NOT_DETECTED;
 	U8 OFDM_L = 0, Mon_FSM = 0, TMCC_L = 0;
 	UINT i = MON_FSM_MS_CNT, j = COARSE_MS_CNT;
 	UINT nOFDM_LockCnt = OFDM_RETRY_MS_CNT, nTMCC_LockCnt = TMCC_RETRY_MS_CNT;
 	U8 CoarseCheck = 0;
-	UINT double_check = 0;
-	U8 dTime = 0;
 #if defined(__KERNEL__) /* Linux kernel */
 	unsigned long start_jiffies, end_jiffies;
 	unsigned long start_jiffies_TMCC, end_jiffies_TMCC;
@@ -933,10 +919,15 @@ INT rtvISDBT_ScanFrequency(UINT nChNum)
 	dwChannelFreq = (nChNum * 6000) + 395143;
 
 	RTV_REG_MAP_SEL(OFDM_PAGE);
+
 	RTV_REG_SET(0x27, 0x6B);
-	RTV_REG_SET(0x37, 0x87);
+	RTV_REG_SET(0x37, 0x87);  //87
 	RTV_REG_SET(0x75, 0x4B);
-	RTV_REG_SET(0x36, 0x00);
+	RTV_REG_SET(0x8C, 0xAC);
+
+	RTV_REG_SET(0x30, 0x20);
+	RTV_REG_SET(0x39, 0x5A);
+	RTV_REG_SET(0x3A, 0x45);
 	
 #if (RTV_SRC_CLK_FREQ_KHz == 19200)
 	if ((nChNum & 0x01) == 0x00)
@@ -982,6 +973,19 @@ INT rtvISDBT_ScanFrequency(UINT nChNum)
 		RTV_REG_SET(0x8E, 0x28);
 #endif
 
+	RTV_REG_SET(0x27, 0x65);   //2014-03-14 raontech
+	RTV_REG_SET(0x24, 0x0A);   //2014-03-14 raontech
+	RTV_REG_SET(0x29, 0x29);   //2014-03-14 raontech
+	RTV_REG_SET(0x2B, 0x21);   //2014-03-14 raontech
+
+	RTV_REG_SET(0x37, 0x86); 
+	RTV_REG_SET(0x30, 0x28);
+	RTV_REG_SET(0x39, 0x6A);
+	RTV_REG_SET(0x3A, 0x5F);
+	
+	RTV_REG_MASK_SET(0x10, 0x01, 0x01);
+	RTV_REG_MASK_SET(0x10, 0x01, 0x00);
+
 	if ((peak_pwr >= pwr_threshold) ) {
 #if defined(__KERNEL__) /* Linux kernel */
 		start_jiffies = get_jiffies_64();
@@ -995,9 +999,14 @@ INT rtvISDBT_ScanFrequency(UINT nChNum)
 			RTV_REG_MASK_SET(0x13, 0x80, 0x00);
 	
 			Mon_FSM = (RTV_REG_GET(0xC0)>>4) & 0x07;
+			peak_pwr2 = ((RTV_REG_GET(0xCA)&0x3f)<<16)
+				 | ((RTV_REG_GET(0xC9)&0xff)<<8)
+				 | (RTV_REG_GET(0xC8)&0xff);
 	
 			CoarseCheck = (RTV_REG_GET(0xC2) & 0x40) >> 6;
-			if (CoarseCheck == 1)
+			if (Mon_FSM == 0x04)
+				CoarseCheck = 1;
+			if ((CoarseCheck == 1) && (peak_pwr2 >= pwr_threshold))
 				break;
 				
 #if defined(__KERNEL__) /* Linux kernel */
@@ -1005,27 +1014,7 @@ INT rtvISDBT_ScanFrequency(UINT nChNum)
 			diff_time = jiffies_to_msecs(end_jiffies - start_jiffies);
 			if (diff_time >= MAX_COARSE_MS)
 				break;
-
-		   if ((diff_time >= (MAX_COARSE_MS/2)) && (double_check == 0)) {
-				dTime = (RTV_REG_GET(0xC1)<<1)|((RTV_REG_GET(0xC0)>>7) &0x01);
-
-				RTV_REG_SET(0x27, dTime);
-		   		RTV_REG_SET(0x36, 0x01);
-	RTV_REG_MASK_SET(0x10, 0x01, 0x01);
-	RTV_REG_MASK_SET(0x10, 0x01, 0x00);
-				double_check = 1;
-		   }
 #endif
-
-			if ((j < (COARSE_MS_CNT/2)) && (double_check == 0)) {
-				 dTime = (RTV_REG_GET(0xC1)<<1)|((RTV_REG_GET(0xC0)>>7) &0x01);
-
-				 RTV_REG_SET(0x27, dTime);
-				 RTV_REG_SET(0x36, 0x01);
-				 RTV_REG_MASK_SET(0x10, 0x01, 0x01);
-				 RTV_REG_MASK_SET(0x10, 0x01, 0x00);
-				 double_check = 1;
-			}
 
 			RTV_DELAY_MS(10);
 		} while (--j);
@@ -1118,15 +1107,18 @@ ISDBT_SCAN_FREQ_EXIT:
 	g_fRtvChannelChange = FALSE;
  
  	RTV_REG_MAP_SEL(OFDM_PAGE);
-	RTV_REG_SET(0x27, 0x5B);
-	RTV_REG_SET(0x36, 0x00);
-	RTV_REG_SET(0x37, 0x86);
+	RTV_REG_SET(0x27, 0x5B);   //2014-03-14 raontech
+	RTV_REG_SET(0x24, 0x08);   //2014-03-14 raontech
+	RTV_REG_SET(0x29, 0x69);   //2014-03-14 raontech
+	RTV_REG_SET(0x2B, 0x61);   //2014-03-14 raontech
+
 	RTV_REG_SET(0x75, 0x8B);
+	RTV_REG_SET(0x8C, 0x5C);  //2014-03-14 raontech
 
 	RTV_GUARD_FREE;
 
 #ifdef DEBUG_LOG_FOR_SCAN
-	RTV_DBGMSG3("[3 rtvISDBT_ScanFrequency: %u #(%u)] Power_Peak(%d)\n",
+	RTV_DBGMSG3("[new rtvISDBT_ScanFrequency: %u #(%u)] Power_Peak(%d)\n",
 		 dwChannelFreq, nChNum, peak_pwr);
 	RTV_DBGMSG3("\t CNT(%d), COARSE = %d, CNT = %d\n", MON_FSM_MS_CNT - i, CoarseCheck, COARSE_MS_CNT - j);
 	RTV_DBGMSG3("\tOFDML = %d, OFDM_L_Cnt = %d SCAN Stage : %d\n", OFDM_L, OFDM_RETRY_MS_CNT - nOFDM_LockCnt,scan_stage);

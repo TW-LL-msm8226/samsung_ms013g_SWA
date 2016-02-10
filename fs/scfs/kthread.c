@@ -2,7 +2,8 @@
  * fs/scfs/kthread.c
  *
  * Copyright (C) 2014 Samsung Electronics Co., Ltd.
- *   Authors: Jongmin Kim <jm45.kim@samsung.com>
+ *   Authors: Sunghwan Yun <sunghwan.yun@samsung.com>
+ *            Jongmin Kim <jm45.kim@samsung.com>
  *            Sangwoo Lee <sangwoo2.lee@samsung.com>
  *            Inbae Lee   <inbae.lee@samsung.com>
  *
@@ -131,7 +132,7 @@ int scfs_privileged_open(struct file **lower_file,
 {
 	struct scfs_open_req *req;
 	int flags = O_LARGEFILE;
-	int ret = SCFS_SUCCESS;
+	int ret = 0;
 #if SCFS_PROFILE_MEM
 //	struct scfs_sb_info *sbi;
 #endif
@@ -157,7 +158,7 @@ int scfs_privileged_open(struct file **lower_file,
 	}
 	req = kmem_cache_alloc(scfs_open_req_cache, GFP_KERNEL);
 	if (!req) {
-		ret = SCFS_ERR_OUT_OF_MEMORY;
+		ret = -ENOMEM;
 		goto out;
 	}
 #if SCFS_PROFILE_MEM
@@ -172,7 +173,7 @@ int scfs_privileged_open(struct file **lower_file,
 	req->flags = 0;
 	mutex_lock(&scfs_kthread_ctl.mux);
 	if (scfs_kthread_ctl.flags & SCFS_KTHREAD_ZOMBIE) {
-		ret = SCFS_ERR_IO;
+		ret = -EIO;
 		mutex_unlock(&scfs_kthread_ctl.mux);
 		SCFS_PRINT_ERROR("We are in the middle of shutting down; "
 		       "aborting privileged request to open lower file\n");
@@ -186,7 +187,7 @@ int scfs_privileged_open(struct file **lower_file,
 	BUG_ON(req->flags == 0);
 	if (req->flags & SCFS_REQ_DROPPED
 	    || req->flags & SCFS_REQ_ZOMBIE) {
-		ret = SCFS_ERR_IO;
+		ret = -EIO;
 		SCFS_PRINT_ERROR( "Privileged open request dropped\n");
 		goto out_unlock;
 	}

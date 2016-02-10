@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -51,6 +51,7 @@
 #define BTSCO_RATE_16KHZ 16000
 
 static int slim0_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
+static int slim0_tx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 static int hdmi_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 
 #define SAMPLING_RATE_48KHZ 48000
@@ -125,7 +126,8 @@ static int msm_snd_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 					bool dapm);
 
 static struct wcd9xxx_mbhc_config mbhc_cfg = {
-#if defined(CONFIG_MACH_KS01EUR)
+#if defined(CONFIG_MACH_KS01EUR) || defined(CONFIG_MACH_KS01SKT) || \
+defined(CONFIG_MACH_KS01KTT) || defined(CONFIG_MACH_KS01LGT)
 	.read_fw_bin = false,
 #else
 	.read_fw_bin = true,
@@ -147,7 +149,7 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 #endif
 	.insert_detect = true,
 	.swap_gnd_mic = NULL,
-#if (defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN)) && !defined(CONFIG_SEC_FACTORY)
+#if (defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN) || defined(CONFIG_MACH_KACTIVELTE_DCM) || defined(CONFIG_MACH_CHAGALL_KDI) || defined(CONFIG_MACH_KLIMT_LTE_DCM)) && !defined(CONFIG_SEC_FACTORY)
 	.cs_enable_flags = (1 << MBHC_CS_ENABLE_POLLING),
 #else
 	.cs_enable_flags = 0,
@@ -239,6 +241,10 @@ static int micbias_en_msm_gpio = 0;
 #if defined(CONFIG_LDO_SUBMIC_BIAS)
 static int submic_bias_gpio = 0;
 #endif
+#if defined(CONFIG_LDO_EARMIC_BIAS)
+static int earmic_bias_gpio = 0;
+#endif
+
 static int spkamp_en_gpio = 0;
 static int main_mic_delay = 0;
 #ifdef CONFIG_SEC_JACTIVE_PROJECT
@@ -248,7 +254,7 @@ static int ear_jack_fsa8038_en = 0;
 int speaker_status = 0;
 EXPORT_SYMBOL(speaker_status);
 #endif
-#if defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN)
+#if defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN) || defined(CONFIG_MACH_KACTIVELTE_DCM) || defined(CONFIG_MACH_CHAGALL_KDI) || defined(CONFIG_MACH_KLIMT_LTE_DCM)
 static int fsa_en_gpio;
 #endif
 
@@ -809,6 +815,21 @@ static int msm_submic_bias_event(struct snd_soc_dapm_widget *w,
 }
 #endif
 
+#if defined(CONFIG_LDO_EARMIC_BIAS)
+static int msm_earmic_bias_event(struct snd_soc_dapm_widget *w,
+	struct snd_kcontrol *k, int event)
+{
+	pr_info("%s : Event %d,  SND_SOC_DAPM:%d\n",
+		__func__, (event), SND_SOC_DAPM_EVENT_ON(event));
+
+		gpio_direction_output(earmic_bias_gpio,
+				SND_SOC_DAPM_EVENT_ON(event));
+
+	return 0;
+}
+#endif
+
+
 #ifdef CONFIG_SEC_K_PROJECT
 static const struct snd_soc_dapm_widget msm8974_dapm_widgets[] = {
 
@@ -907,7 +928,11 @@ static const struct snd_soc_dapm_widget msm8974_dapm_widgets[] = {
 #else
 	SND_SOC_DAPM_MIC("Main Mic", msm_mainmic_bias_event),
 #endif
+#if defined(CONFIG_LDO_EARMIC_BIAS)
+	SND_SOC_DAPM_MIC("Headset Mic", msm_earmic_bias_event),
+#else
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
+#endif	
 #if defined(CONFIG_LDO_SUBMIC_BIAS)
 	SND_SOC_DAPM_MIC("Sub Mic", msm_submic_bias_event),
 #else
@@ -1595,6 +1620,8 @@ static int msm_slim_0_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 			SNDRV_PCM_HW_PARAM_CHANNELS);
 
 	pr_debug("%s()\n", __func__);
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+				   slim0_tx_bit_format);
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_0_tx_ch;
 
@@ -1668,7 +1695,7 @@ static int msm8974_mi2s_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 					SNDRV_PCM_HW_PARAM_RATE);
 	struct snd_interval *channels = hw_param_interval(params,
 						SNDRV_PCM_HW_PARAM_CHANNELS);
-	pr_info("%s: enter\n", __func__);
+	pr_debug("%s: enter\n", __func__);
 
 	rate->min = rate->max = 48000;
 
@@ -1846,7 +1873,7 @@ static int msm8974_taiko_event_cb(struct snd_soc_codec *codec,
 	}
 }
 
-#if defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN)
+#if defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN) || defined(CONFIG_MACH_KACTIVELTE_DCM) || defined(CONFIG_MACH_CHAGALL_KDI) || defined(CONFIG_MACH_KLIMT_LTE_DCM)
 extern unsigned int system_rev;
 #endif
 
@@ -2233,7 +2260,7 @@ static void msm8974_mi2s_shutdown(struct snd_pcm_substream *substream)
 
 	if (atomic_dec_return(&pri_mi2s_clk.mi2s_rsc_ref) == 0) {
 		int ret =0;
-		pr_err("[MAX98504_DEBUG] %s: free mi2s resources\n", __func__);
+		pr_debug("[MAX98504_DEBUG] %s: free mi2s resources\n", __func__);
 			if(substream->stream==0)
 				ret = afe_set_lpass_clock(AFE_PORT_ID_SECONDARY_MI2S_RX, &lpass_mi2s_disable);	
 			else if(substream->stream==1)
@@ -2256,7 +2283,7 @@ static int msm8974_configure_pri_mi2s_gpio(void)
 		rtn = gpio_request(pri_mi2s_gpio[i].gpio_no,
 				pri_mi2s_gpio[i].gpio_name);
 
-		pr_info("%s: gpio = %d, gpio name = %s, rtn = %d\n", __func__,
+		pr_debug("%s: gpio = %d, gpio name = %s, rtn = %d\n", __func__,
 		pri_mi2s_gpio[i].gpio_no, pri_mi2s_gpio[i].gpio_name, rtn);		
 		if (rtn) {
 			pr_err("%s: Failed to request gpio %d\n",
@@ -2279,7 +2306,7 @@ static int msm8974_mi2s_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 
-	pr_err("%s: dai name %s %p\n", __func__, cpu_dai->name, cpu_dai->dev);
+	pr_debug("%s: dai name %s %p\n", __func__, cpu_dai->name, cpu_dai->dev);
 
 	if (atomic_inc_return(&pri_mi2s_clk.mi2s_rsc_ref) == 1) {
 		pr_info("%s: acquire mi2s resources\n", __func__);
@@ -2797,6 +2824,21 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ops = &msm8974_slimbus_2_be_ops,
 	},
+	{
+		.name = "MSM8974 Media9",
+		.stream_name = "MultiMedia9",
+		.cpu_dai_name   = "MultiMedia9",
+		.platform_name  = "msm-pcm-dsp.0",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+				SND_SOC_DPCM_TRIGGER_POST},
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.ignore_suspend = 1,
+		/* this dainlink has playback support */
+		.ignore_pmdown_time = 1,
+		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA9,
+	},
 	/* Backend BT/FM DAI Links */
 	{
 		.name = LPASS_BE_INT_BT_SCO_RX,
@@ -3151,6 +3193,19 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ignore_suspend = 1,
 	},
+	/* Incall Music 2 BACK END DAI Link */	
+	{
+		.name = LPASS_BE_VOICE2_PLAYBACK_TX,
+		.stream_name = "Voice2 Farend Playback",
+		.cpu_dai_name = "msm-dai-q6-dev.32770",
+		.platform_name = "msm-pcm-routing",
+		.codec_name     = "msm-stub-codec.1",
+		.codec_dai_name = "msm-stub-rx",
+		.no_pcm = 1,
+		.be_id = MSM_BACKEND_DAI_VOICE2_PLAYBACK_TX,
+		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ignore_suspend = 1,
+	},
 #ifdef CONFIG_SND_SOC_MAX98504	
 	{
 		.name = LPASS_BE_SEC_MI2S_TX,
@@ -3330,6 +3385,27 @@ static int msm8974_prepare_submic(void)
 	return 0;
 }
 #endif
+
+#if defined(CONFIG_LDO_EARMIC_BIAS)
+static int msm8974_prepare_earmic(void)
+{
+	int ret;
+	if (earmic_bias_gpio) {
+		pr_debug("%s : earmic bias gpio request %d", __func__,
+			earmic_bias_gpio);
+		ret = gpio_request(earmic_bias_gpio, "TAIKO_EARMIC_BIAS");
+		if (ret) {
+			pr_debug("%s: Failed to request taiko earmic bias gpio %d error %d\n",
+				__func__, earmic_bias_gpio, ret);
+			return ret;
+		}
+		gpio_direction_output(earmic_bias_gpio, 0);
+	}
+
+	return 0;
+}
+#endif
+
 static int msm8974_prepare_spkamp(void)
 {
 	int ret;
@@ -3579,7 +3655,23 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		}
 #endif
 
-#if defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN)
+#if defined(CONFIG_LDO_EARMIC_BIAS)
+	/* the ldo of ear mic bias */
+	earmic_bias_gpio = of_get_named_gpio(pdev->dev.of_node,
+				"qcom,earmic-bias-gpio", 0);
+		pr_info("%s :ear mic bias = %d\n", __func__, earmic_bias_gpio);
+
+		ret = msm8974_prepare_earmic();
+		if (ret) {
+			dev_err(&pdev->dev, "msm8974_prepare_earmic failed (%d)\n",
+				ret);
+			gpio_free(earmic_bias_gpio);
+			earmic_bias_gpio = 0;
+		}
+#endif
+
+
+#if defined(CONFIG_MACH_KLTE_KOR) || defined(CONFIG_MACH_KLTE_JPN) || defined(CONFIG_MACH_KACTIVELTE_DCM) || defined(CONFIG_MACH_CHAGALL_KDI) || defined(CONFIG_MACH_KLIMT_LTE_DCM)
 	/* enable FSA8039 for jack detection */
 	pr_info("%s: Check to enable FSA8039\n", __func__);
 	fsa_en_gpio = of_get_named_gpio(pdev->dev.of_node,
@@ -3604,7 +3696,7 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	}
 #endif
 	/* the switch to connect the main mic to the codec or es705 */
-#if defined(CONFIG_MACH_KLTE_JPN)
+#if defined(CONFIG_MACH_KLTE_JPN) || defined(CONFIG_MACH_KACTIVELTE_DCM) || defined(CONFIG_MACH_CHAGALL_KDI) || defined(CONFIG_MACH_KLIMT_LTE_DCM)
 #if defined(CONFIG_MACH_KLTE_MAX77828_JPN)
 	micbias_en_msm_gpio = of_get_named_gpio(pdev->dev.of_node,
 				"qcom,micbias-en-msm-gpio", 0);

@@ -206,7 +206,10 @@ int32_t msm_sensor_driver_probe(void *setting)
 
 #if defined (CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) \
 	|| defined(CONFIG_SEC_DEGAS_PROJECT) || defined (CONFIG_SEC_T8_PROJECT) \
-	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_MACH_VICTOR3GDSDTV_LTN)
+	|| defined (CONFIG_SEC_T10_PROJECT) \
+	|| defined (CONFIG_MACH_VICTOR3GDSDTV_LTN) \
+	|| defined (CONFIG_MACH_RUBENSLTE_OPEN) \
+	|| defined (CONFIG_MACH_RUBENSWIFI_OPEN)
     if(slave_info->camera_id == CAMERA_2){
 #if defined(CONFIG_SR130PC20)
 		s_ctrl->func_tbl = &sr130pc20_sensor_func_tbl ;
@@ -380,7 +383,10 @@ int32_t msm_sensor_driver_probe(void *setting)
 	&& !defined(CONFIG_MACH_AFYONLTE_TMO) && !defined(CONFIG_MACH_AFYONLTE_CAN) && !defined (CONFIG_MACH_VICTORLTE_CTC) \
 	&& !defined(CONFIG_SEC_DEGAS_PROJECT) && !defined (CONFIG_SEC_T8_PROJECT) \
 	&& !defined (CONFIG_SEC_T10_PROJECT) && !defined (CONFIG_MACH_VICTOR3GDSDTV_LTN) \
-	&& !defined (CONFIG_MACH_AFYONLTE_MTR)	//Commenting for Millet, Matisse
+	&& !defined (CONFIG_MACH_AFYONLTE_MTR)	\
+	&& !defined (CONFIG_MACH_RUBENSLTE_OPEN) \
+	&& !defined (CONFIG_MACH_RUBENSWIFI_OPEN) //Commenting for Millet, Matisse
+
     if (power_info->power_off_setting && (power_info->power_off_setting_size > 0)) {
         /* Parse and fill vreg params */
         rc = msm_camera_fill_vreg_params(
@@ -404,7 +410,9 @@ int32_t msm_sensor_driver_probe(void *setting)
 	|| defined(CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_AFYONLTE_CAN) \
 	|| defined (CONFIG_MACH_VICTORLTE_CTC) || defined(CONFIG_SEC_DEGAS_PROJECT) \
 	|| defined (CONFIG_SEC_T8_PROJECT) || defined (CONFIG_SEC_T10_PROJECT) \
-	|| defined (CONFIG_MACH_AFYONLTE_MTR) // Added for YUV bringup
+	|| defined (CONFIG_MACH_AFYONLTE_MTR) \
+	|| defined (CONFIG_MACH_RUBENSLTE_OPEN) \
+	|| defined (CONFIG_MACH_RUBENSWIFI_OPEN) // Added for YUV bringup
     /* Power up and probe sensor */
     rc = s_ctrl->func_tbl->sensor_power_up(s_ctrl,
                                            &s_ctrl->sensordata->power_info,
@@ -536,7 +544,9 @@ int32_t msm_sensor_driver_probe(void *setting)
 	|| defined(CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_AFYONLTE_CAN) \
 	|| defined(CONFIG_MACH_VICTORLTE_CTC) || defined(CONFIG_SEC_DEGAS_PROJECT) \
 	|| defined (CONFIG_SEC_T8_PROJECT) || defined (CONFIG_SEC_T10_PROJECT) \
-	|| defined (CONFIG_MACH_AFYONLTE_MTR)	// Added for YUV bringup ToDo.
+	|| defined (CONFIG_MACH_AFYONLTE_MTR) \
+	|| defined (CONFIG_MACH_RUBENSLTE_OPEN) \
+	|| defined (CONFIG_MACH_RUBENSWIFI_OPEN) // Added for YUV bringup ToDo
     /* Power down */
     s_ctrl->func_tbl->sensor_power_down(
                                         s_ctrl,

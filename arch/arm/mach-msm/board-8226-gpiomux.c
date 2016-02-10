@@ -875,6 +875,11 @@ static struct gpiomux_setting cam_settings[] = {
 		.pull = GPIOMUX_PULL_NONE,
 		.dir = GPIOMUX_OUT_LOW,
 	},
+	{
+		.func = GPIOMUX_FUNC_1, /*active 1*/ /* 6 */
+		.drv = GPIOMUX_DRV_6MA,
+		.pull = GPIOMUX_PULL_NONE,
+	},
 };
 
 
@@ -1070,7 +1075,42 @@ static struct msm_gpiomux_config msm_sensor_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &cam_settings[4],
 		},
 	},
-
+#elif defined(CONFIG_MACH_VASTALTE_CHN_CMCC_DUOS)
+	{
+		.gpio = 26, /* CAM_MCLK0 */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &cam_settings[6],
+			[GPIOMUX_SUSPENDED] = &cam_settings[1],
+		},
+	},
+	{
+		.gpio = 29, /* CCI_I2C_SDA0 */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &cam_settings[0],
+			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
+		},
+	},
+	{
+		.gpio = 30, /* CCI_I2C_SCL0 */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &cam_settings[0],
+			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
+		},
+	},
+	{
+		.gpio = 37, /* CAM1_RST_N */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &cam_settings[3],
+			[GPIOMUX_SUSPENDED] = &cam_settings[4],
+		},
+	},
+	{
+		.gpio = 28, /* CAM2_RST_N */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &cam_settings[3],
+			[GPIOMUX_SUSPENDED] = &cam_settings[4],
+		},
+	},
 #else
 	{
 		.gpio = 26, /* CAM_MCLK0 */
@@ -1504,7 +1544,6 @@ void __init msm8226_init_gpiomux(void)
 		}
 #endif
 }
-
 #ifdef CONFIG_WCNSS_IRIS_REGISTER_DUMP
 static void wcnss_switch_to_gpio(void)
 {

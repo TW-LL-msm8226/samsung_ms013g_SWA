@@ -19,6 +19,7 @@ struct gpio_keys_button {
 	const char *desc;
 	unsigned int type;	/* input event type (EV_KEY, EV_SW, EV_ABS) */
 	int wakeup;		/* configure the button as a wake-up source */
+	int default_wakeup;
 	int debounce_interval;	/* debounce ticks interval in msecs */
 	bool can_disable;
 	int value;		/* axis value for EV_ABS */
@@ -36,12 +37,18 @@ struct gpio_keys_platform_data {
 	const char *name;		/* input device name */
 #ifdef CONFIG_SENSORS_HALL
 	int gpio_flip_cover;
+	int flip_code;
+
 #endif
 #ifdef CONFIG_SENSORS_HALL_IRQ_CTRL
 	bool workaround_set;
 #endif
 #ifdef CONFIG_SENSORS_HALL_DEBOUNCE
 	bool debounce_set;
+#endif
+#ifdef CONFIG_BATTERY_COVER
+	int gpio_batt_cover;
+	int batt_cover_code;
 #endif
 };
 #ifdef CONFIG_SENSORS_HALL_IRQ_CTRL

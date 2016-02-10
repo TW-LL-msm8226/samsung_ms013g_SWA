@@ -1,22 +1,6 @@
 /******************************************************************************
 * (c) COPYRIGHT 2013 RAONTECH, Inc. ALL RIGHTS RESERVED.
 *
-* This software is the property of RAONTECH and is furnished under license
-* by RAONTECH.
-* This software may be used only in accordance with the terms of said license.
-* This copyright noitce may not be remoced, modified or obliterated
-* without the prior written permission of RAONTECH, Inc.
-*
-* This software may not be copied, transmitted, provided to or otherwise
-* made available to any other person, company, corporation or other entity 
-* except as specified in the terms of said license.
-*
-* No right, title, ownership or other interest in the software is hereby
-* granted or transferred.
-*
-* The information contained herein is subject to change without notice
-* and should not be construed as a commitment by RAONTECH, Inc.
-*
 * TITLE      : RAONTECH TV RF ADC data header file.
 *
 * FILENAME   : raontv_rf_adc_data.h
@@ -25,14 +9,13 @@
 *  All the declarations and definitions necessary for the setting of RF ADC.
 *
 ******************************************************************************/
-
-/****************************************************************************** 
+/******************************************************************************
 * REVISION HISTORY
 *
 *    DATE	  	  NAME				REMARKS
 * ----------  -------------    ------------------------------------------------
 * 07/26/2013  Yang, Maverick   Created.
-*******************************************************************************/
+******************************************************************************/
 
 #if defined(RAONTV_CHIP_PKG_QFN)
 static const U8 g_atLNAtbl[5][18] = {
@@ -83,6 +66,28 @@ static const E_RTV_ADC_CLK_FREQ_TYPE g_aeAdcClkTypeTbl_ISDBT[] = {
 	RTV_ADC_CLK_FREQ_8_MHz,
 	RTV_ADC_CLK_FREQ_9_MHz,
 	RTV_ADC_CLK_FREQ_9_6_MHz	
+};
+
+#elif (RTV_SRC_CLK_FREQ_KHz == 26000)
+static const U8 g_abAdcClkSynTbl[MAX_NUM_RTV_ADC_CLK_FREQ_TYPE][6] = {
+	{0x0D, 0xC0, 0x0C, 0x13, 0x0E, 0x2E}, // Based 26MHz,	8MHz	   External Clock27
+	{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, // Based 26MHz, 8.192MHz  /* Unsupport Clock */
+	{0x0D, 0xD8, 0x0D, 0x13, 0x0E, 0x2E}, // Based 26MHz,	9MHz	   External Clock28
+	{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}  // Based 26MHz,	9.6MHz	/* Unsupport Clock */
+};
+
+static const struct RTV_ADC_CFG_INFO g_atOfdmCfgTbl_ISDBT[] = {
+	/* TNCO 	   PNCO1	  PNCO2	 CFREQ_GAIN  GAIN	 */
+	 {0x10410420, 0x10000000, 0x00, 0x208208, 0x41}, //8MHz
+	 {0xFFFFFFFF, 0xFFFFFFFF, 0xFF, 0xFFFFFF, 0xFF},   // Based 32MHz, 8.192MHz  /* Unsupport Clock */
+	 {0x0E72AE55, 0x0E38E38E, 0x00, 0x1CE55C, 0x39}, //9MHz
+	 {0xFFFFFFFF, 0xFFFFFFFF, 0xFF, 0xFFFFFF, 0xFF}, //9.6MHz
+};
+
+static const E_RTV_ADC_CLK_FREQ_TYPE g_aeAdcClkTypeTbl_ISDBT[] = {
+	RTV_ADC_CLK_FREQ_8_MHz,
+	RTV_ADC_CLK_FREQ_9_MHz,
+	RTV_ADC_CLK_FREQ_9_MHz
 };
 
 #elif (RTV_SRC_CLK_FREQ_KHz == 32000)

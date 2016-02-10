@@ -1,37 +1,21 @@
 /******************************************************************************
 * (c) COPYRIGHT 2013 RAONTECH, Inc. ALL RIGHTS RESERVED.
 *
-* This software is the property of RAONTECH and is furnished under
-* license by RAONTECH.
-* This software may be used only in accordance with the terms of said license.
-* This copyright noitce may not be remoced, modified or obliterated
-* without the prior written permission of RAONTECH, Inc.
-*                                                                                                      
-* This software may not be copied, transmitted, provided to or otherwise made available                
-* to any other person, company, corporation or other entity except as specified in the                 
-* terms of said license.                                                                               
-*                                                                                                      
-* No right, title, ownership or other interest in the software is hereby granted or transferred.       
-*                                                                                                      
-* The information contained herein is subject to change without notice and should 
-* not be construed as a commitment by RAONTECH, Inc.                                                                    
-* 
-* TITLE 	  : RAONTECH TV RF services source file. 
+* TITLE 	  : RAONTECH TV RF services source file.
 *
 * FILENAME    : raontv_rf.c
 *
 * DESCRIPTION : 
 *		Library of routines to initialize, and operate on, the RAONTECH RF chip.
 *
-********************************************************************************/
- 
-/******************************************************************************** 
+******************************************************************************/
+/******************************************************************************
 * REVISION HISTORY
 *
 *    DATE	  	  NAME				REMARKS
-* ----------  -------------    --------------------------------------------------
-* 07/26/2013  Yang, Maverick   Created.                                                              
-********************************************************************************/
+* ----------  -------------    ------------------------------------------------
+* 07/26/2013  Yang, Maverick   Created.
+******************************************************************************/
 
 #include "raontv_rf.h"
 #include "raontv_rf_adc_data.h"
@@ -57,7 +41,7 @@
 	{  0x39,	 0x53  },
 	{  0x3A,	 0xDC  },
 	{  0x3B,	 0xD0  },
-	{  0x3C,	 0x0B  },
+	{  0x3C,	 0xEB  }, // 0x0B => 0xEB
 	{  0x3D,	 0x76  },
 	{  0x3E,	 0x4F  },
 	{  0x3F,	 0x26  },

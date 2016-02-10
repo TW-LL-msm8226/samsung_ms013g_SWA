@@ -152,6 +152,27 @@ config SENSORS_MAX86900
 	  This driver can also be built as a module.  If so, the module
 	  will be called max86900.
 
+config SENSORS_MLX90615
+	tristate "MLX90615 body temperature sensor support"
+	depends on I2C
+	default n
+	help
+	  bodytemp bodytemp bodytemp bodytemp bodytemp bodytemp
+
+config SENSORS_DTS201A
+	tristate "DTS201A body temperature sensor support"
+	depends on I2C
+	default n
+	help
+	  bodytemp bodytemp bodytemp bodytemp bodytemp bodytemp
+
+config SENSORS_BIO
+	tristate "BIO sensor control"
+	depends on SYSFS
+	default n
+	help
+	  bio sensor control
+
 config SENSORS_SSP_BOUNCE_FIRMWARE
 	tristate "Sensors ssp BOUNCE_FIRMWARE"
 	default n

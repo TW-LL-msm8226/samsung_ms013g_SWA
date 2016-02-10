@@ -34,6 +34,9 @@
 
 #include "inv_mpu_iio.h"
 
+#define MAX_GYRO	32767
+#define MIN_GYRO	-32768
+
 static u8 fifo_data[HARDWARE_FIFO_SIZE + HEADERED_Q_BYTES];
 static int inv_process_batchmode(struct inv_mpu_state *st);
 
@@ -1621,7 +1624,7 @@ static int inv_process_batchmode(struct inv_mpu_state *st)
 	done_flag = false;
 	target_bytes = st->fifo_count + st->left_over_size;
 	counter = 0;
-	while ((dptr - d <= target_bytes - HEADERED_NORMAL_BYTES) &&
+	while (((dptr - d) <= (target_bytes - HEADERED_NORMAL_BYTES)) &&
 							(!done_flag)) {
 		hdr = (u16)be16_to_cpup((__be16 *)(dptr));
 		steps = (hdr & STEP_INDICATOR_MASK);
@@ -1630,11 +1633,11 @@ static int inv_process_batchmode(struct inv_mpu_state *st)
 		/* error packet */
 		if ((sensor_ind == SENSOR_INVALID) ||
 				(!st->sensor[sensor_ind].on)) {
-			dptr += HEADERED_NORMAL_BYTES;
+			dptr += (HEADERED_NORMAL_BYTES / 4);
 			continue;
 		}
 		/* incomplete packet */
-		if (target_bytes - (dptr - d) <
+		if ((target_bytes - (dptr - d)) <
 					st->sensor[sensor_ind].sample_size) {
 			done_flag = true;
 			continue;
@@ -1825,20 +1828,18 @@ irqreturn_t inv_read_fifo(int irq, void *dev_id)
 	}
 	bpm = st->chip_config.bytes_per_datum;
 	fifo_count = 0;
-	if (bpm) {
-		result = inv_i2c_read(st, reg->fifo_count_h, FIFO_COUNT_BYTE,
-									data);
-		if (result)
-			goto end_session;
-		fifo_count = be16_to_cpup((__be16 *)(data));
-		/* fifo count can't be odd number */
-		if (fifo_count & 1)
-			goto flush_fifo;
-		if (fifo_count == 0)
-			goto end_session;
-		st->fifo_count = fifo_count;
-	}
-
+	result = inv_i2c_read(st, reg->fifo_count_h, FIFO_COUNT_BYTE, data);
+	if (result)
+		goto end_session;
+	fifo_count = be16_to_cpup((__be16 *)(data));
+	/* fifo count can't be odd number */
+	if (fifo_count & 1)
+		goto flush_fifo;
+	if (fifo_count == 0)
+		goto end_session;
+	st->fifo_count = fifo_count;
+	if (fifo_count >  FIFO_THRESHOLD)
+		goto flush_fifo;
 	if (st->chip_config.dmp_on) {
 		result = inv_process_batchmode(st);
 	} else {
@@ -1870,6 +1871,8 @@ end_session:
 
 	return IRQ_HANDLED;
 flush_fifo:
+	pr_err("inv_mpu:FIFO overflow=%d_%d_%d\n",
+		st->fifo_count, bpm, st->chip_config.dmp_on);
 	/* Flush HW and SW FIFOs. */
 	inv_reset_fifo(indio_dev);
 	inv_clear_kfifo(st);

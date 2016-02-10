@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd.h 473046 2014-04-26 15:09:39Z $
+ * $Id: dhd.h 487900 2014-06-27 10:26:47Z $
  */
 
 /****************
@@ -288,6 +288,8 @@ typedef struct dhd_pub {
 	bool	proptxstatus_module_ignore;
 	bool	proptxstatus_credit_ignore;
 	bool	proptxstatus_txstatus_ignore;
+
+	bool	wlfc_rxpkt_chk;
 	/*
 	 * implement below functions in each platform if needed.
 	 */
@@ -339,6 +341,13 @@ typedef struct dhd_pub {
 	struct task_struct * current_rxf;
 	int chan_isvht80;
 #endif /* CUSTOM_SET_CPUCORE */
+#if defined(CUSTOMER_HW4) && defined(ARGOS_CPU_SCHEDULER)
+	cpumask_var_t default_cpu_mask;
+	cpumask_var_t dpc_affinity_cpu_mask;
+	cpumask_var_t rxf_affinity_cpu_mask;
+	bool affinity_isdpc;
+	bool affinity_isrxf;
+#endif /* CUSTOMER_HW4 && ARGOS_CPU_SCHEDULER */
 } dhd_pub_t;
 #if defined(CUSTOMER_HW4)
 #define MAX_RESCHED_CNT 600
@@ -933,6 +942,7 @@ extern bool dhd_prec_drop_pkts(dhd_pub_t *dhdp, struct pktq *pq, int prec, f_dro
 #ifdef PROP_TXSTATUS
 int dhd_os_wlfc_block(dhd_pub_t *pub);
 int dhd_os_wlfc_unblock(dhd_pub_t *pub);
+extern const uint8 prio2fifo[];
 #endif /* PROP_TXSTATUS */
 
 uint8* dhd_os_prealloc(dhd_pub_t *dhdpub, int section, uint size, bool kmalloc_if_fail);

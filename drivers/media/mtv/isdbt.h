@@ -79,8 +79,8 @@
 
 #define ISDBT_PWR_EN           36
 #define ISDBT_PWR_EN2          110
-#define ISDBT_RST          		67
-#define ISDBT_INT          		49
+#define ISDBT_RST              67
+#define ISDBT_INT              49
 #define ISDBT_SPI_MOSI         20
 #define ISDBT_SPI_MISO         21
 #define ISDBT_SPI_CS           22

@@ -114,6 +114,9 @@ enum pageflags {
 	PG_nocache,
 #endif
 	__NR_PAGEFLAGS,
+#if defined(CONFIG_CMA_PAGE_COUNTING)
+	PG_cma,			/* page in CMA area */
+#endif
 
 	/* Filesystems */
 	PG_checked = PG_owner_priv_1,
@@ -282,6 +285,10 @@ PAGEFLAG_FALSE(HWPoison)
 #ifdef CONFIG_SCFS_LOWER_PAGECACHE_INVALIDATION
 PAGEFLAG(Scfslower, scfslower)
 PAGEFLAG(Nocache, nocache)
+#endif
+
+#if defined(CONFIG_CMA_PAGE_COUNTING)
+PAGEFLAG(CMA, cma)
 #endif
 
 u64 stable_page_flags(struct page *page);

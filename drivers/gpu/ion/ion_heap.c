@@ -120,8 +120,7 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
  *
  * Note that the `pages' array should be composed of all 4K pages.
  */
-int ion_heap_pages_zero(struct page **pages, int num_pages,
-				bool should_invalidate)
+int ion_heap_pages_zero(struct page **pages, int num_pages)
 {
 	int i, j, k, npages_to_vmap;
 	void *ptr = NULL;
@@ -154,21 +153,22 @@ int ion_heap_pages_zero(struct page **pages, int num_pages,
 		if (!ptr)
 			return -ENOMEM;
 
-		memset(ptr, 0, npages_to_vmap * PAGE_SIZE);
-		if (should_invalidate) {
-			/*
-			 * invalidate the cache to pick up the zeroing
-			 */
-			for (k = 0; k < npages_to_vmap; k++) {
-				void *p = kmap_atomic(pages[i + k]);
-				phys_addr_t phys = page_to_phys(
-							pages[i + k]);
+		/*
+		 * We have to invalidate the cache here because there
+		 * might be dirty lines to these physical pages (which
+		 * we don't care about) that could get written out at
+		 * any moment.
+		 */
+		for (k = 0; k < npages_to_vmap; k++) {
+			void *p = kmap_atomic(pages[i + k]);
+			phys_addr_t phys = page_to_phys(
+				pages[i + k]);
 
-				dmac_inv_range(p, p + PAGE_SIZE);
-				outer_inv_range(phys, phys + PAGE_SIZE);
-				kunmap_atomic(p);
-			}
+			dmac_inv_range(p, p + PAGE_SIZE);
+			outer_inv_range(phys, phys + PAGE_SIZE);
+			kunmap_atomic(p);
 		}
+		memset(ptr, 0, npages_to_vmap * PAGE_SIZE);
 		vunmap(ptr);
 	}
 
@@ -208,8 +208,7 @@ static void ion_heap_free_pages_mem(struct pages_mem *pages_mem)
 	pages_mem->free_fn(pages_mem->pages);
 }
 
-int ion_heap_high_order_page_zero(struct page *page,
-				int order, bool should_invalidate)
+int ion_heap_high_order_page_zero(struct page *page, int order)
 {
 	int i, ret;
 	struct pages_mem pages_mem;
@@ -222,8 +221,7 @@ int ion_heap_high_order_page_zero(struct page *page,
 	for (i = 0; i < (1 << order); ++i)
 		pages_mem.pages[i] = page + i;
 
-	ret = ion_heap_pages_zero(pages_mem.pages, npages,
-				should_invalidate);
+	ret = ion_heap_pages_zero(pages_mem.pages, npages);
 	ion_heap_free_pages_mem(&pages_mem);
 	return ret;
 }
@@ -252,8 +250,7 @@ int ion_heap_buffer_zero(struct ion_buffer *buffer)
 			pages_mem.pages[npages++] = page + j;
 	}
 
-	ret = ion_heap_pages_zero(pages_mem.pages, npages,
-				ion_buffer_cached(buffer));
+	ret = ion_heap_pages_zero(pages_mem.pages, npages);
 	ion_heap_free_pages_mem(&pages_mem);
 	return ret;
 }
@@ -367,7 +364,6 @@ size_t ion_heap_freelist_drain(struct ion_heap *heap, size_t size)
 
 size_t ion_heap_freelist_drain_from_shrinker(struct ion_heap *heap, size_t size)
 {
-	
 	return _ion_heap_freelist_drain(heap, size, true);
 }
 

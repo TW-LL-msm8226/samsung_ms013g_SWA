@@ -3913,11 +3913,11 @@ static int cyttsp5_core_poweroff_device_(struct cyttsp5_core_data *cd)
 	int rc;
 
 	/* No need for cd->pdata->power check since we did it in probe */
+	cd->hw_power_state = false;
 	rc = cd->cpdata->power(cd->cpdata, 0, cd->dev, 0);
 	if (rc < 0)
 		dev_err(cd->dev, "%s: HW Power down fails r=%d\n",
 				__func__, rc);
-	cd->hw_power_state = false;
 	return rc;
 }
 
@@ -3941,10 +3941,14 @@ static int cyttsp5_core_sleep_(struct cyttsp5_core_data *cd)
 	return rc;
 }
 extern int cyttsp5_samsung_factory_suspend_attention(struct device *dev);
-static int cyttsp5_core_sleep(struct cyttsp5_core_data *cd)
+static int cyttsp5_core_sleep(struct cyttsp5_core_data *cd,
+	bool _disable_irq)
 {
 	int rc;
 
+	cyttsp5_stop_wd_timer(cd);
+	cancel_work_sync(&cd->startup_work);
+	cyttsp5_stop_wd_timer(cd);
 	rc = request_exclusive(cd, cd->dev, CY_REQUEST_EXCLUSIVE_TIMEOUT);
 	if (rc < 0) {
 		dev_err(cd->dev, "%s: fail get exclusive ex=%p own=%p\n",
@@ -3953,6 +3957,15 @@ static int cyttsp5_core_sleep(struct cyttsp5_core_data *cd)
 	}
 
 	cyttsp5_samsung_factory_suspend_attention(cd->dev);
+	mutex_lock(&cd->system_lock);
+	if (_disable_irq && cd->irq_enabled) {
+		cd->irq_enabled = false;
+		disable_irq_nosync(cd->irq);
+		mutex_unlock(&cd->system_lock);
+
+		dev_dbg(cd->dev, "%s: irq disabled\n", __func__);
+	} else
+		mutex_unlock(&cd->system_lock);
 
 	rc = cyttsp5_core_sleep_(cd);
 
@@ -4207,11 +4220,21 @@ static irqreturn_t cyttsp5_irq(int irq, void *handle)
 	int rc;
 
 	if (!cd->irq_enabled)
+	{
+		dev_dbg(cd->dev, "%s: irq_enabled 0\n", __func__);
 		return IRQ_HANDLED;
-
+	}
 	if (!cd->hw_power_state)
+	{
+		dev_dbg(cd->dev, "%s: hw_power_state 0\n", __func__);
 		return IRQ_HANDLED;
+	}
+	if (cd->cpdata->irq_stat && 
+		cd->cpdata->irq_stat(cd->cpdata, cd->dev)) {
+		dev_dbg(cd->dev, "%s: interrupt pin is high\n", __func__);
 
+		return IRQ_HANDLED;
+	}
 	rc = cyttsp5_read_input(cd);
 	if (!rc)
 		cyttsp5_parse_input(cd);
@@ -4317,6 +4340,7 @@ static int cyttsp5_reset(struct cyttsp5_core_data *cd)
 static int _cyttsp5_request_reset(struct device *dev)
 {
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
+	int t;
 	int rc;
 
 	mutex_lock(&cd->system_lock);
@@ -4324,16 +4348,29 @@ static int _cyttsp5_request_reset(struct device *dev)
 	mutex_unlock(&cd->system_lock);
 
 	rc = cyttsp5_reset(cd);
-	if (rc < 0) {
-		dev_err(cd->dev, "%s: Error on h/w reset r=%d\n",
-			__func__, rc);
-		mutex_lock(&cd->system_lock);
-		cd->hid_reset_cmd_state = 0;
-		mutex_unlock(&cd->system_lock);
+	if (rc < 0)
+		goto reset_error;
+	t = wait_event_timeout(cd->wait_q, (cd->hid_reset_cmd_state == 0),
+			msecs_to_jiffies(CY_HID_RESET_TIMEOUT));
+	if (IS_TMO(t)) {
+		dev_err(cd->dev, "%s: reset timed out\n",
+			__func__);
+		rc = -ETIME;
+		goto reset_error;
 	}
+	goto exit_reset;
 
+reset_error:
+	mutex_lock(&cd->system_lock);
+	cd->hid_reset_cmd_state = 0;
+	mutex_unlock(&cd->system_lock);
+exit_reset:
 	return rc;
 }
+
+#define CALIBRATION_RETRY 3
+#define CALIBRATION_DELAY 2000 // in ms, to avoid firmware's self calibration time.
+#define CALIBRATION_RETRY_DELAY 1000 // in ms
 
 /*
  * returns err if refused ; if no error then restart has completed
@@ -4343,6 +4380,7 @@ static int cyttsp5_startup(struct cyttsp5_core_data *cd);
 static int _cyttsp5_request_restart(struct device *dev)
 {
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
+	int retry = CALIBRATION_RETRY;
 	int rc = 0;
 
 	mutex_lock(&cd->system_lock);
@@ -4358,13 +4396,23 @@ static int _cyttsp5_request_restart(struct device *dev)
 	}
 
 	dev_dbg(dev, "%s: calibrate after fw upgrade\n", __func__);
+	msleep(CALIBRATION_DELAY);
+recal:
+	if (retry != CALIBRATION_RETRY) {
+		dev_dbg(cd->dev, "%s: Retry %d\n", __func__,
+			CALIBRATION_RETRY - retry);
+		msleep(CALIBRATION_RETRY_DELAY);
+	}
+
 	rc = cyttsp5_fw_calibrate(cd->dev);
 	if (rc < 0) {
 		dev_err(cd->dev, "%s: calibration fail, rc=%d\n", __func__,
 			rc);
-		return rc;
+		if (retry--)
+			goto recal;
+		goto exit;
 	}
-
+exit:
 	return rc;
 }
 
@@ -4457,11 +4505,11 @@ static int cyttsp5_core_wake_(struct cyttsp5_core_data *cd)
 	cd->sleep_state = SS_SLEEP_OFF;
 	mutex_unlock(&cd->system_lock);
 
-	cyttsp5_start_wd_timer(cd);
 	return rc;
 }
 
-static int cyttsp5_core_wake(struct cyttsp5_core_data *cd)
+static int cyttsp5_core_wake(struct cyttsp5_core_data *cd,
+	bool _enable_irq)
 {
 	int rc;
 
@@ -4473,6 +4521,11 @@ static int cyttsp5_core_wake(struct cyttsp5_core_data *cd)
 	}
 
 	rc = cyttsp5_core_wake_(cd);
+	if (_enable_irq && !cd->irq_enabled) {
+		cd->irq_enabled = true;
+		enable_irq(cd->irq);
+		dev_dbg(cd->dev, "%s: irq enabled\n", __func__);
+	}
 
 	if (release_exclusive(cd, cd->dev) < 0)
 		dev_err(cd->dev, "%s: fail to release exclusive\n", __func__);
@@ -4600,12 +4653,17 @@ static int cyttsp5_startup_(struct cyttsp5_core_data *cd)
 {
 	int rc;
 	int t;
-
+	int retry;
 #ifdef TTHE_TUNER_SUPPORT
 	tthe_print(cd, NULL, 0, "enter startup");
 #endif
 
 	cyttsp5_stop_wd_timer(cd);
+	retry = CY_CORE_STARTUP_RETRY_COUNT;
+reset:
+	if (retry != CY_CORE_STARTUP_RETRY_COUNT)
+		dev_dbg(cd->dev, "%s: Retry %d\n", __func__,
+			CY_CORE_STARTUP_RETRY_COUNT - retry);
 
 #if CYTTSP5_USE_SLEEP
 	rc = cyttsp4_check_and_deassert_int(cd);
@@ -4744,6 +4802,10 @@ exit_reset:
 	call_atten_cb(cd, CY_ATTEN_STARTUP, 0);
 
 exit:
+	if (rc && retry) {
+		retry--;
+		goto reset;
+	}
 	if (cd->probe_done)
 		cyttsp5_start_wd_timer(cd);
 
@@ -4784,7 +4846,7 @@ exit:
 	cd->startup_state = STARTUP_NONE;
 	mutex_unlock(&cd->system_lock);
 
-	dev_dbg(cd->dev, "%s: done\n", __func__);
+	dev_dbg(cd->dev, "%s: done, rc=%d\n", __func__, rc);
 	return rc;
 }
 
@@ -4808,7 +4870,7 @@ static int cyttsp5_core_rt_suspend(struct device *dev)
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
 	int rc;
 
-	rc = cyttsp5_core_sleep(cd);
+	rc = cyttsp5_core_sleep(cd, 0);
 	if (rc < 0) {
 		dev_err(dev, "%s: Error on sleep\n", __func__);
 		return -EAGAIN;
@@ -4821,7 +4883,7 @@ static int cyttsp5_core_rt_resume(struct device *dev)
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
 	int rc;
 
-	rc = cyttsp5_core_wake(cd);
+	rc = cyttsp5_core_wake(cd, 0);
 	if (rc < 0) {
 		dev_err(dev, "%s: Error on wake\n", __func__);
 		return -EAGAIN;
@@ -4838,32 +4900,8 @@ int cyttsp5_core_suspend(struct device *dev)
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	if (cd->irq_enabled) {
-		cd->irq_enabled = false;
-		disable_irq_nosync(cd->irq);
-		dev_dbg(dev, "%s: irq disabled\n", __func__);
-	}
+	cyttsp5_core_sleep(cd, 1);
 
-	cyttsp5_core_sleep(cd);
-
-	if (!(cd->cpdata->flags & CY_CORE_FLAG_WAKE_ON_GESTURE))
-		goto exit;
-
-	/*
-	 * This will not prevent resume
-	 * Required to prevent interrupts before i2c awake
-	 */
-	disable_irq(cd->irq);
-	cd->irq_disabled = 1;
-
-	if (device_may_wakeup(dev)) {
-		dev_dbg(dev, "%s Device MAY wakeup\n", __func__);
-		if (!enable_irq_wake(cd->irq))
-			cd->irq_wake = 1;
-	} else {
-		dev_dbg(dev, "%s Device NOT wakeup\n", __func__);
-	}
-exit:
 	dev_dbg(dev, "%s: done\n", __func__);
 	return 0;
 }
@@ -4871,43 +4909,14 @@ exit:
 int cyttsp5_core_resume(struct device *dev)
 {
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
-	dev_dbg(dev, "%s\n", __func__);
 
+	dev_dbg(dev, "%s\n", __func__);
 	if (!cd->probe_done) {
 		dev_dbg(dev, "%s probe is not done\n", __func__);
 		return 0;
 	}
 
-	if (!(cd->cpdata->flags & CY_CORE_FLAG_WAKE_ON_GESTURE))
-		goto exit;
-
-	/*
-	 * I2C bus pm does not call suspend if device runtime suspended
-	 * This flag is cover that case
-	 */
-	if (cd->irq_disabled) {
-		enable_irq(cd->irq);
-		cd->irq_disabled = 0;
-	}
-
-	if (device_may_wakeup(dev)) {
-		dev_dbg(dev, "%s Device MAY wakeup\n", __func__);
-		if (cd->irq_wake) {
-			disable_irq_wake(cd->irq);
-			cd->irq_wake = 0;
-		}
-	} else {
-		dev_dbg(dev, "%s Device NOT wakeup\n", __func__);
-	}
-
-exit:
-	if (!cd->irq_enabled) {
-		cd->irq_enabled = true;
-		enable_irq(cd->irq);
-		dev_dbg(dev, "%s: irq enabled\n", __func__);
-	}
-
-	cyttsp5_core_wake(cd);
+	cyttsp5_core_wake(cd, 1);
 
 	dev_dbg(dev, "%s: done\n", __func__);
 	return 0;
@@ -5120,7 +5129,7 @@ static ssize_t cyttsp5_drv_debug_store(struct device *dev,
 
 	case CY_DBG_SUSPEND:
 		dev_info(dev, "%s: SUSPEND (cd=%p)\n", __func__, cd);
-		rc = cyttsp5_core_sleep(cd);
+		rc = cyttsp5_core_sleep(cd, 0);
 		if (rc)
 			dev_err(dev, "%s: Suspend failed rc=%d\n",
 				__func__, rc);
@@ -5130,7 +5139,7 @@ static ssize_t cyttsp5_drv_debug_store(struct device *dev,
 
 	case CY_DBG_RESUME:
 		dev_info(dev, "%s: RESUME (cd=%p)\n", __func__, cd);
-		rc = cyttsp5_core_wake(cd);
+		rc = cyttsp5_core_wake(cd, 0);
 		if (rc)
 			dev_err(dev, "%s: Resume failed rc=%d\n",
 				__func__, rc);
@@ -5502,11 +5511,6 @@ int cyttsp5_probe(const struct cyttsp5_bus_ops *ops, struct device *dev,
 	enum cyttsp5_atten_type type;
 	unsigned long irq_flags;
 	int rc = 0;
-#ifdef CONFIG_SEC_PATEK_PROJECT
-	struct regulator *reg_ldo12, *reg_ldo10;
-	int retry = 3;
-	int i = 0;
-#endif
 	if (!pdata || !pdata->core_pdata || !pdata->mt_pdata) {
 		dev_err(dev, "%s: Missing platform data\n", __func__);
 		rc = -ENODEV;
@@ -5552,92 +5556,6 @@ int cyttsp5_probe(const struct cyttsp5_bus_ops *ops, struct device *dev,
 		cd->cpdata->product_id : CY_HID_APP_PRODUCT_ID;
 	cd->hid_core.hid_desc_register =
 		cpu_to_le16(cd->cpdata->hid_desc_register);
-
-#ifdef CONFIG_SEC_PATEK_PROJECT
-	cd->enable_counte = 0;
-	/* fpga main clock gpio */
-	gpio_tlmm_config(GPIO_CFG(FPGA_MAIN_CLOCK_GPIO, 2, GPIO_CFG_OUTPUT,
-			GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-
-	/* regulator set for FPGA */
-	reg_ldo12 = regulator_get(NULL, "max77826_ldo12");
-	if (IS_ERR(reg_ldo12)) {
-		dev_err(dev, "could not get reg_ldo12, rc = %ld=n",
-			PTR_ERR(reg_ldo12));
-	}
-	reg_ldo10 = regulator_get(NULL, "max77826_ldo10");
-	if (IS_ERR(reg_ldo10)) {
-		dev_err(dev, "could not get reg_ldo10, rc = %ld=n",
-			PTR_ERR(reg_ldo10));
-	}
-
-	rc = regulator_set_voltage(reg_ldo12, 2500000, 2500000);
-	if (rc) {
-		dev_err(dev, "%s: unable to set reg_ldo12 voltage to 2.5V\n",
-			__func__);
-	}
-	rc = regulator_set_voltage(reg_ldo10, 2950000, 2950000);
-	if (rc) {
-		dev_err(dev, "%s: unable to set reg_ldo10 voltage to 2.95V\n",
-			__func__);
-	}
-
-	if (!regulator_is_enabled(reg_ldo12)) {
-		rc = regulator_enable(reg_ldo12);
-		if (rc)
-			pr_err("enable reg_ldo12 failed, rc=%d\n", rc);
-	}
-	if (!regulator_is_enabled(reg_ldo10)) {
-		rc = regulator_enable(reg_ldo10);
-		if (rc)
-			pr_err("enable reg_ldo10 failed, rc=%d\n", rc);
-	}
-
-	/* regulator set for TSP */
-	cd->cpdata->supplies = kzalloc(
-		sizeof(struct regulator_bulk_data) * cd->cpdata->num_of_supply, GFP_KERNEL);
-	if (!cd->cpdata->supplies) {
-		dev_err(dev,
-			"%s: Failed to alloc mem for supplies\n", __func__);
-		rc = -ENOMEM;
-
-		goto err_mem_regulator;
-	}
-	for (i = 0; i < cd->cpdata->num_of_supply; i++)
-		cd->cpdata->supplies[i].supply = cd->cpdata->name_of_supply[i];
-
-	rc = regulator_bulk_get(dev, cd->cpdata->num_of_supply,
-				 cd->cpdata->supplies);
-	if (rc)
-		goto err_get_regulator;
-
-	rc = regulator_set_voltage(cd->cpdata->supplies[0].consumer, 3300000, 3300000);
-	if (rc) {
-		dev_err(dev, "[TSP] unable to set voltage for 3.3v, %d\n",
-			rc);
-	}
-	rc = regulator_set_voltage(cd->cpdata->supplies[1].consumer, 1800000, 1800000);
-	if (rc) {
-		dev_err(dev, "[TSP] unable to set voltage for 1.8v, %d\n",
-			rc);
-	}
-
-	/* FPGA configuration */
-	while(retry > 0){
-		ice40_fpga_firmware_update(cd);
-		rc = gpio_get_value(FPGA_CDONE_GPIO);
-		dev_err(dev, "FPGA configuration %s. CDONE : %d\n", rc ? "succeeded":"failed", rc);
-		if (rc)
-			break;
-	}
-	/* GPIO setting for TSP I2C communication */
-	fpga_enable(cd, 1);
-	gpio_tlmm_config(GPIO_CFG(cd->cpdata->tsp_sda, 3, GPIO_CFG_INPUT,
-		GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-	gpio_tlmm_config(GPIO_CFG(cd->cpdata->tsp_scl, 3, GPIO_CFG_INPUT,
-		GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-	gpio_set_value(cd->cpdata->tsp_sel, 1); // main:0, sub:1
-#endif
 
 	/* Initialize IRQ */
 	cd->irq = gpio_to_irq(cd->cpdata->irq_gpio);
@@ -5779,11 +5697,6 @@ error_request_irq:
 		cd->cpdata->init(cd->cpdata, 0, dev);
 	dev_set_drvdata(dev, NULL);
 error_gpio_irq:
-#ifdef CONFIG_SEC_PATEK_PROJECT
-err_get_regulator:
-	kfree(cd->cpdata->supplies);
-err_mem_regulator:
-#endif
 	kfree(cd);
 error_alloc_data:
 error_no_pdata:
@@ -5832,9 +5745,6 @@ int cyttsp5_release(struct cyttsp5_core_data *cd)
 	cyttsp5_del_core(dev);
 	cyttsp5_free_si_ptrs(cd);
 	cyttsp5_free_hid_reports(cd);
-#ifdef CONFIG_SEC_PATEK_PROJECT
-	kfree(cd->cpdata->supplies);
-#endif
 	kfree(cd);
 	return 0;
 }

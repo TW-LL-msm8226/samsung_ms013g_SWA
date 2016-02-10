@@ -304,59 +304,6 @@ void report_game_rot_data(struct ssp_data *data, struct sensor_value *grotdata)
 		rot_buf);
 }
 
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-void report_gesture_data(struct ssp_data *data, struct sensor_value *gesdata)
-{
-	int i = 0;
-	for (i=0; i<20; i++) {
-		data->buf[GESTURE_SENSOR].data[i] = gesdata->data[i];
-	}
-
-	input_report_abs(data->gesture_input_dev,
-		ABS_X, data->buf[GESTURE_SENSOR].data[0]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_Y, data->buf[GESTURE_SENSOR].data[1]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_Z, data->buf[GESTURE_SENSOR].data[2]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_RX, data->buf[GESTURE_SENSOR].data[3]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_RY, data->buf[GESTURE_SENSOR].data[4]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_RZ, data->buf[GESTURE_SENSOR].data[5]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_THROTTLE, data->buf[GESTURE_SENSOR].data[6]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_RUDDER, data->buf[GESTURE_SENSOR].data[7]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_WHEEL, data->buf[GESTURE_SENSOR].data[8]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_GAS, data->buf[GESTURE_SENSOR].data[9]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_BRAKE, data->buf[GESTURE_SENSOR].data[10]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT0X, data->buf[GESTURE_SENSOR].data[11]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT0Y, data->buf[GESTURE_SENSOR].data[12]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT1X, data->buf[GESTURE_SENSOR].data[13]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT1Y, data->buf[GESTURE_SENSOR].data[14]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT2X, data->buf[GESTURE_SENSOR].data[15]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT2Y, data->buf[GESTURE_SENSOR].data[16]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT3X, data->buf[GESTURE_SENSOR].data[17]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_HAT3Y, data->buf[GESTURE_SENSOR].data[18]);
-	input_report_abs(data->gesture_input_dev,
-		ABS_PRESSURE, data->buf[GESTURE_SENSOR].data[19]);
-
-	input_sync(data->gesture_input_dev);
-}
-#endif
 #ifdef CONFIG_SENSORS_SSP_BMP182
 void report_pressure_data(struct ssp_data *data, struct sensor_value *predata)
 {
@@ -379,10 +326,8 @@ void report_light_data(struct ssp_data *data, struct sensor_value *lightdata)
 	data->buf[LIGHT_SENSOR].g = lightdata->g;
 	data->buf[LIGHT_SENSOR].b = lightdata->b;
 	data->buf[LIGHT_SENSOR].w = lightdata->w;
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_TMD37823)
 	data->buf[LIGHT_SENSOR].a_time = lightdata->a_time;
 	data->buf[LIGHT_SENSOR].a_gain = (0x03) & (lightdata->a_gain);
-#endif
 
 	input_report_rel(data->light_input_dev, REL_HWHEEL,
 		data->buf[LIGHT_SENSOR].r + 1);
@@ -392,13 +337,11 @@ void report_light_data(struct ssp_data *data, struct sensor_value *lightdata)
 		data->buf[LIGHT_SENSOR].b + 1);
 	input_report_rel(data->light_input_dev, REL_MISC,
 		data->buf[LIGHT_SENSOR].w + 1);
-
-#ifdef CONFIG_SENSORS_SSP_TMG399X
 	input_report_rel(data->light_input_dev, REL_RY,
 		data->buf[LIGHT_SENSOR].a_time + 1);
 	input_report_rel(data->light_input_dev, REL_RZ,
 		data->buf[LIGHT_SENSOR].a_gain + 1);
-#endif
+
 	input_sync(data->light_input_dev);
 }
 
@@ -485,9 +428,22 @@ void report_temp_humidity_data(struct ssp_data *data,
 		wake_lock_timeout(&data->ssp_wake_lock, 2 * HZ);
 }
 #endif
+
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+void report_uv_data(struct ssp_data *data,
+	struct sensor_value *uv_data)
+{
+	data->buf[UV_SENSOR].uv = uv_data->uv;
+	input_report_rel(data->uv_input_dev, REL_MISC,
+		data->buf[UV_SENSOR].uv + 1);
+	input_sync(data->uv_input_dev);
+}
+#endif
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 void report_bulk_comp_data(struct ssp_data *data)
 {
+	pr_info("[SSP] %s called bulk_adc_length = %d \n",
+		__func__, (int)data->bulk_buffer->len);
 	input_report_rel(data->temp_humi_input_dev, REL_WHEEL,
 		data->bulk_buffer->len);
 	input_sync(data->temp_humi_input_dev);
@@ -500,15 +456,6 @@ int initialize_event_symlink(struct ssp_data *data)
 
 	data->sen_dev = device_create(sensors_event_class, NULL, 0, NULL,
 		"%s", "symlink");
-
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	iRet = sysfs_create_link(&data->sen_dev->kobj,
-		&data->gesture_input_dev->dev.kobj,
-		data->gesture_input_dev->name);
-	if (iRet < 0)
-		goto iRet_gesture_sysfs_create_link;
-#endif
 
 	iRet = sysfs_create_link(&data->sen_dev->kobj,
 		&data->light_input_dev->dev.kobj,
@@ -529,7 +476,13 @@ int initialize_event_symlink(struct ssp_data *data)
 	if (iRet < 0)
 		goto iRet_temp_humi_sysfs_create_link;
 #endif
-
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	iRet = sysfs_create_link(&data->sen_dev->kobj,
+		&data->uv_input_dev->dev.kobj,
+		data->uv_input_dev->name);
+	if (iRet < 0)
+		goto iRet_uv_sysfs_create_link;
+#endif
 	iRet = sysfs_create_link(&data->sen_dev->kobj,
 		&data->mag_input_dev->dev.kobj,
 		data->mag_input_dev->name);
@@ -588,6 +541,12 @@ iRet_uncal_mag_sysfs_create_link:
 		&data->mag_input_dev->dev.kobj,
 		data->mag_input_dev->name);
 iRet_mag_sysfs_create_link:
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	sysfs_delete_link(&data->sen_dev->kobj,
+		&data->uv_input_dev->dev.kobj,
+		data->uv_input_dev->name);
+iRet_uv_sysfs_create_link:
+#endif
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	sysfs_delete_link(&data->sen_dev->kobj,
 		&data->temp_humi_input_dev->dev.kobj,
@@ -602,26 +561,14 @@ iRet_prox_sysfs_create_link:
 		&data->light_input_dev->dev.kobj,
 		data->light_input_dev->name);
 iRet_light_sysfs_create_link:
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	sysfs_delete_link(&data->sen_dev->kobj,
-		&data->gesture_input_dev->dev.kobj,
-		data->gesture_input_dev->name);
-iRet_gesture_sysfs_create_link:
-#endif
-	pr_err("[SSP]: %s - could not create event symlink\n", __func__);
+
+	pr_err("[SSP] %s - could not create event symlink\n", __func__);
 
 	return FAIL;
 }
 
 void remove_event_symlink(struct ssp_data *data)
 {
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	sysfs_delete_link(&data->sen_dev->kobj,
-		&data->gesture_input_dev->dev.kobj,
-		data->gesture_input_dev->name);
-#endif
 	sysfs_delete_link(&data->sen_dev->kobj,
 		&data->light_input_dev->dev.kobj,
 		data->light_input_dev->name);
@@ -632,6 +579,11 @@ void remove_event_symlink(struct ssp_data *data)
 	sysfs_delete_link(&data->sen_dev->kobj,
 		&data->temp_humi_input_dev->dev.kobj,
 		data->temp_humi_input_dev->name);
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	sysfs_delete_link(&data->sen_dev->kobj,
+		&data->uv_input_dev->dev.kobj,
+		data->uv_input_dev->name);
 #endif
 	sysfs_delete_link(&data->sen_dev->kobj,
 		&data->mag_input_dev->dev.kobj,
@@ -745,17 +697,17 @@ int initialize_input_dev(struct ssp_data *data)
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 		*temp_humi_input_dev,
 #endif
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-		*gesture_input_dev,
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+		*uv_input_dev,
 #endif
+
 		*mag_input_dev, *uncal_mag_input_dev, *uncalib_gyro_input_dev, 
 		*sig_motion_input_dev, *step_cnt_input_dev,
 		*meta_input_dev;
 
 	data->accel_indio_dev = iio_allocate_device(0);
 	if (!data->accel_indio_dev) {
-		pr_err("[SSP]: %s failed to allocate memory for iio accel device\n", __func__);
+		pr_err("[SSP] %s failed to allocate memory for iio accel device\n", __func__);
 		return -ENOMEM;
 	}
 
@@ -769,7 +721,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	iRet = ssp_iio_configure_ring(data->accel_indio_dev);
 	if (iRet) {
-		pr_err("[SSP]: %s configure ring buffer fail\n", __func__);
+		pr_err("[SSP] %s configure ring buffer fail\n", __func__);
 		goto out_free_accel;
 	}
 
@@ -784,7 +736,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	data->gyro_indio_dev = iio_allocate_device(0);
 	if (!data->gyro_indio_dev) {
-		pr_err("[SSP]: %s failed to allocate memory for iio gyro device\n", __func__);
+		pr_err("[SSP] %s failed to allocate memory for iio gyro device\n", __func__);
 		goto out_alloc_fail_gyro;
 	}
 
@@ -798,7 +750,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	iRet = ssp_iio_configure_ring(data->gyro_indio_dev);
 	if (iRet) {
-		pr_err("[SSP]: %s configure ring buffer fail\n", __func__);
+		pr_err("[SSP] %s configure ring buffer fail\n", __func__);
 		goto out_free_gyro;
 	}
 
@@ -813,7 +765,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	data->game_rot_indio_dev = iio_allocate_device(0);
 	if (!data->game_rot_indio_dev) {
-		pr_err("[SSP]: %s failed to allocate memory for iio gyro device\n", __func__);
+		pr_err("[SSP] %s failed to allocate memory for iio gyro device\n", __func__);
 		goto out_alloc_fail_game_rot;
 	}
 
@@ -827,7 +779,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	iRet = ssp_iio_configure_ring(data->game_rot_indio_dev);
 	if (iRet) {
-		pr_err("[SSP]: %s configure ring buffer fail\n", __func__);
+		pr_err("[SSP] %s configure ring buffer fail\n", __func__);
 		goto out_free_game_rot;
 	}
 
@@ -842,7 +794,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	data->rot_indio_dev = iio_allocate_device(0);
 	if (!data->rot_indio_dev) {
-		pr_err("[SSP]: %s failed to allocate memory for iio gyro device\n", __func__);
+		pr_err("[SSP] %s failed to allocate memory for iio gyro device\n", __func__);
 		goto out_alloc_fail_rot;
 	}
 
@@ -856,7 +808,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	iRet = ssp_iio_configure_ring(data->rot_indio_dev);
 	if (iRet) {
-		pr_err("[SSP]: %s configure ring buffer fail\n", __func__);
+		pr_err("[SSP] %s configure ring buffer fail\n", __func__);
 		goto out_free_rot;
 	}
 
@@ -871,7 +823,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	data->step_det_indio_dev = iio_allocate_device(0);
 	if (!data->step_det_indio_dev) {
-		pr_err("[SSP]: %s failed to allocate memory for iio gyro device\n", __func__);
+		pr_err("[SSP] %s failed to allocate memory for iio gyro device\n", __func__);
 		goto out_alloc_fail_step_det;
 	}
 
@@ -885,7 +837,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	iRet = ssp_iio_configure_ring(data->step_det_indio_dev);
 	if (iRet) {
-		pr_err("[SSP]: %s configure ring buffer fail\n", __func__);
+		pr_err("[SSP] %s configure ring buffer fail\n", __func__);
 		goto out_free_step_det;
 	}
 
@@ -901,7 +853,7 @@ int initialize_input_dev(struct ssp_data *data)
 #ifdef CONFIG_SENSORS_SSP_BMP182
 	data->pressure_indio_dev = iio_allocate_device(0);
 	if (!data->pressure_indio_dev) {
-		pr_err("[SSP]: %s failed to allocate memory for iio gyro device\n", __func__);
+		pr_err("[SSP] %s failed to allocate memory for iio gyro device\n", __func__);
 		goto out_alloc_fail_pressure;
 	}
 
@@ -915,7 +867,7 @@ int initialize_input_dev(struct ssp_data *data)
 
 	iRet = ssp_iio_configure_ring(data->pressure_indio_dev);
 	if (iRet) {
-		pr_err("[SSP]: %s configure ring buffer fail\n", __func__);
+		pr_err("[SSP] %s configure ring buffer fail\n", __func__);
 		goto out_free_pressure;
 	}
 
@@ -930,12 +882,7 @@ int initialize_input_dev(struct ssp_data *data)
 #endif
 
 	/* allocate input_device */
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	gesture_input_dev = input_allocate_device();
-	if (gesture_input_dev == NULL)
-		goto iRet_gesture_input_free_device;
-#endif
+
 
 	light_input_dev = input_allocate_device();
 	if (light_input_dev == NULL)
@@ -949,6 +896,12 @@ int initialize_input_dev(struct ssp_data *data)
 	temp_humi_input_dev = input_allocate_device();
 	if (temp_humi_input_dev == NULL)
 		goto iRet_temp_humidity_input_free_device;
+#endif
+
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	uv_input_dev = input_allocate_device();
+	if (uv_input_dev == NULL)
+		goto iRet_uv_input_free_device;
 #endif
 
 	mag_input_dev = input_allocate_device();
@@ -975,14 +928,13 @@ int initialize_input_dev(struct ssp_data *data)
 	if (meta_input_dev == NULL)
 		goto iRet_meta_input_free_device;
 
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	input_set_drvdata(gesture_input_dev, data);
-#endif
 	input_set_drvdata(light_input_dev, data);
 	input_set_drvdata(prox_input_dev, data);
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	input_set_drvdata(temp_humi_input_dev, data);
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	input_set_drvdata(uv_input_dev, data);
 #endif
 	input_set_drvdata(mag_input_dev, data);
 	input_set_drvdata(uncal_mag_input_dev, data);
@@ -991,14 +943,13 @@ int initialize_input_dev(struct ssp_data *data)
 	input_set_drvdata(step_cnt_input_dev, data);
 	input_set_drvdata(meta_input_dev, data);
 
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	gesture_input_dev->name = "gesture_sensor";
-#endif
 	light_input_dev->name = "light_sensor";
 	prox_input_dev->name = "proximity_sensor";
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	temp_humi_input_dev->name = "temp_humidity_sensor";
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	uv_input_dev->name = "uv_sensor";
 #endif
 	mag_input_dev->name = "geomagnetic_sensor";
 	uncal_mag_input_dev->name = "uncal_geomagnetic_sensor";
@@ -1006,51 +957,6 @@ int initialize_input_dev(struct ssp_data *data)
 	uncalib_gyro_input_dev->name = "uncalibrated_gyro_sensor";
 	step_cnt_input_dev->name = "step_cnt_sensor";
 	meta_input_dev->name = "meta_event";
-
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_X);
-	input_set_abs_params(gesture_input_dev, ABS_X, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_Y);
-	input_set_abs_params(gesture_input_dev, ABS_Y, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_Z);
-	input_set_abs_params(gesture_input_dev, ABS_Z, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_RX);
-	input_set_abs_params(gesture_input_dev, ABS_RX, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_RY);
-	input_set_abs_params(gesture_input_dev, ABS_RY, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_RZ);
-	input_set_abs_params(gesture_input_dev, ABS_RZ, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_THROTTLE);
-	input_set_abs_params(gesture_input_dev, ABS_THROTTLE, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_RUDDER);
-	input_set_abs_params(gesture_input_dev, ABS_RUDDER, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_WHEEL);
-	input_set_abs_params(gesture_input_dev, ABS_WHEEL, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_GAS);
-	input_set_abs_params(gesture_input_dev, ABS_GAS, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_BRAKE);
-	input_set_abs_params(gesture_input_dev, ABS_BRAKE, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT0X);
-	input_set_abs_params(gesture_input_dev, ABS_HAT0X, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT0Y);
-	input_set_abs_params(gesture_input_dev, ABS_HAT0Y, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT1X);
-	input_set_abs_params(gesture_input_dev, ABS_HAT1X, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT1Y);
-	input_set_abs_params(gesture_input_dev, ABS_HAT1Y, 0, 1024, 0, 0);
-
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT2X);
-	input_set_abs_params(gesture_input_dev, ABS_HAT2X, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT2Y);
-	input_set_abs_params(gesture_input_dev, ABS_HAT2Y, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT3X);
-	input_set_abs_params(gesture_input_dev, ABS_HAT3X, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_HAT3Y);
-	input_set_abs_params(gesture_input_dev, ABS_HAT3Y, 0, 1024, 0, 0);
-	input_set_capability(gesture_input_dev, EV_ABS, ABS_PRESSURE);
-	input_set_abs_params(gesture_input_dev, ABS_PRESSURE, 0, 1024, 0, 0);
-#endif
 
 	input_set_capability(light_input_dev, EV_REL, REL_HWHEEL);
 	input_set_capability(light_input_dev, EV_REL, REL_DIAL);
@@ -1066,6 +972,9 @@ int initialize_input_dev(struct ssp_data *data)
 	input_set_capability(temp_humi_input_dev, EV_REL, REL_HWHEEL);
 	input_set_capability(temp_humi_input_dev, EV_REL, REL_DIAL);
 	input_set_capability(temp_humi_input_dev, EV_REL, REL_WHEEL);
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	input_set_capability(uv_input_dev, EV_REL, REL_MISC);
 #endif
 #ifdef SAVE_MAG_LOG
 	input_set_capability(mag_input_dev, EV_REL, REL_X);
@@ -1105,11 +1014,24 @@ int initialize_input_dev(struct ssp_data *data)
 	input_set_capability(meta_input_dev, EV_REL, REL_DIAL);
 
 	/* register input_device */
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	iRet = input_register_device(gesture_input_dev);
-	if (iRet < 0)
-		goto iRet_gesture_input_unreg_device;
+
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	iRet = input_register_device(uv_input_dev);
+	if (iRet < 0) {
+		input_free_device(uv_input_dev);
+		input_free_device(light_input_dev);
+		input_free_device(prox_input_dev);
+#ifdef CONFIG_SENSORS_SSP_SHTC1
+		input_free_device(temp_humi_input_dev);
+#endif
+		input_free_device(mag_input_dev);
+		input_free_device(uncal_mag_input_dev);
+		input_free_device(sig_motion_input_dev);
+		input_free_device(uncalib_gyro_input_dev);
+		input_free_device(step_cnt_input_dev);
+		input_free_device(meta_input_dev);
+		goto iRet_uv_input_unreg_device;
+	}
 #endif
 
 	iRet = input_register_device(light_input_dev);
@@ -1208,14 +1130,14 @@ int initialize_input_dev(struct ssp_data *data)
 		goto iRet_meta_input_unreg_device;
 	}
 
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	data->gesture_input_dev = gesture_input_dev;
-#endif
 	data->light_input_dev = light_input_dev;
 	data->prox_input_dev = prox_input_dev;
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	data->temp_humi_input_dev = temp_humi_input_dev;
+#endif
+
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	data->uv_input_dev = uv_input_dev;
 #endif
 	data->mag_input_dev = mag_input_dev;
 	data->uncal_mag_input_dev = uncal_mag_input_dev;
@@ -1244,12 +1166,11 @@ iRet_tmep_humi_input_unreg_device:
 iRet_proximity_input_unreg_device:
 	input_unregister_device(light_input_dev);
 iRet_light_input_unreg_device:
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	input_unregister_device(gesture_input_dev);
+	input_unregister_device(uv_input_dev);
 	return ERROR;
-iRet_gesture_input_unreg_device:
-#endif
+
+iRet_uv_input_unreg_device:
+
 	input_free_device(meta_input_dev);
 iRet_meta_input_free_device:
 	input_free_device(step_cnt_input_dev);
@@ -1262,19 +1183,16 @@ iRet_sig_motion_input_free_device:
 iRet_uncal_mag_input_free_device:
 	input_free_device(mag_input_dev);
 iRet_mag_input_free_device:
-#ifdef CONFIG_SENSORS_SSP_SHTC1
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	input_free_device(uv_input_dev);
+iRet_uv_input_free_device:
+#endif
 	input_free_device(temp_humi_input_dev);
 iRet_temp_humidity_input_free_device:
-#endif
 	input_free_device(prox_input_dev);
 iRet_proximity_input_free_device:
 	input_free_device(light_input_dev);
 iRet_light_input_free_device:
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	input_free_device(gesture_input_dev);
-iRet_gesture_input_free_device:
-#endif
 #ifdef CONFIG_SENSORS_SSP_BMP182
 	iio_device_unregister(data->pressure_indio_dev);
 out_remove_trigger_pressure:
@@ -1324,20 +1242,19 @@ out_unreg_ring_accel:
 	ssp_iio_unconfigure_ring(data->accel_indio_dev);
 out_free_accel:
 	iio_free_device(data->accel_indio_dev);
-	pr_err("[SSP]: %s - could not allocate input device\n", __func__);
+	pr_err("[SSP] %s - could not allocate input device\n", __func__);
 	return ERROR;
 }
 
 void remove_input_dev(struct ssp_data *data)
 {
-#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
-	defined(CONFIG_SENSORS_SSP_MAX88920)
-	input_unregister_device(data->gesture_input_dev);
-#endif
 	input_unregister_device(data->light_input_dev);
 	input_unregister_device(data->prox_input_dev);
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	input_unregister_device(data->temp_humi_input_dev);
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	input_unregister_device(data->uv_input_dev);
 #endif
 	input_unregister_device(data->mag_input_dev);
 	input_unregister_device(data->uncal_mag_input_dev);

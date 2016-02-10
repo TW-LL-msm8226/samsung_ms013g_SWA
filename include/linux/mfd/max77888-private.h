@@ -39,6 +39,10 @@ enum max77888_pmic_rev {
 	MAX77888_REV_PASS3	= 0x02,
 };
 
+#if defined(CONFIG_LEDS_MAX77888)
+extern int max77888_muic_set_jigset(int reg_value);
+#endif
+
 /* Slave addr = 0xCC: Charger, Flash LED, Haptic */
 enum max77888_pmic_reg {
 	MAX77888_LED_REG_IFLASH				= 0x00,

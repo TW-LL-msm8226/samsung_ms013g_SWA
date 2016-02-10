@@ -1403,7 +1403,7 @@ static int vfsspi_parse_dt(struct device *dev,
 	gpio = of_get_named_gpio_flags(np, "vfsspi-drdyPin",
 		0, &flags);
 	if (gpio < 0) {
-		gpio = errorno;
+		errorno = gpio;
 		goto dt_exit;
 	} else {
 		data->drdyPin = gpio;
@@ -1422,7 +1422,7 @@ static int vfsspi_parse_dt(struct device *dev,
 			__func__, data->ocp_pin);
 	}
 
-#if defined(CONFIG_MACH_KLTE_JPN)
+#if defined(CONFIG_MACH_KLTE_JPN) || defined(CONFIG_MACH_CHAGALL_KDI)
 	gpio = of_get_named_gpio_flags(np, "vfsspi-ocpen-jpn",
 		0, &flags);
 #else
@@ -1548,23 +1548,23 @@ static void vfsspi_work_func_debug(struct work_struct *work)
 	}
 
 	if (g_data->ocp_pin)
-		pr_info("%s ocp state: %d, ocp pin: %d,"
-			" ldo pin: %d, sleep pin: %d, tz_mode: %d\n",
+		pr_info("%s ocpstate: %d, ocppin: %d,"
+			" ldo: %d, sleep: %d, tz: %d\n",
 			__func__, g_data->ocp_state,
 			gpio_get_value(g_data->ocp_pin), ldo_value,
 			gpio_get_value(g_data->sleepPin),
 			g_data->tz_mode);
 	else {
 		if (g_data->ocp_en)
-			pr_info("%s ocp state: %d, ocp en: %d"
-				" ldo pin: %d, sleep pin: %d, tz_mode: %d\n",
+			pr_info("%s ocpstate: %d, ocpen: %d"
+				" ldo: %d, sleep: %d, tz: %d\n",
 				__func__, g_data->ocp_state,
 				gpio_get_value(g_data->ocp_en), ldo_value,
 				gpio_get_value(g_data->sleepPin),
 				g_data->tz_mode);
 		else
-			pr_info("%s ocp state: %d,"
-				" ldo pin: %d, sleep pin: %d, tz_mode: %d\n",
+			pr_info("%s ocpstate: %d,"
+				" ldo: %d, sleep: %d, tz: %d\n",
 				__func__, g_data->ocp_state,
 				ldo_value, gpio_get_value(g_data->sleepPin),
 				g_data->tz_mode);

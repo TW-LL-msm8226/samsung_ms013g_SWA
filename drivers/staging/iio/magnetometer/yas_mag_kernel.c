@@ -50,7 +50,9 @@
 #define CHIP_NAME			"YAS532"
 #endif
 
-#if defined(CONFIG_MACH_SLTE_CMCC) || defined(CONFIG_MACH_SLTE_CU)
+#if defined(CONFIG_MACH_SLTE_CMCC) || defined(CONFIG_MACH_SLTE_CU) || defined(CONFIG_MACH_SLTE_TD) \
+|| defined(CONFIG_MACH_SLTE_ATT) || defined(CONFIG_MACH_SLTE_TMO) \
+|| defined(CONFIG_MACH_SLTE_DCM) || defined(CONFIG_MACH_SLTE_KDI)
 extern unsigned int system_rev;
 #endif
 
@@ -721,11 +723,14 @@ static int yas_parse_dt(struct device *dev,
 		pr_info("[SENSOR] yas,orientation = %d\n", st->position);
 	else
 		return -EINVAL;
-#if defined(CONFIG_MACH_SLTE_CMCC) || defined(CONFIG_MACH_SLTE_CU)
+#if defined(CONFIG_MACH_SLTE_CMCC) || defined(CONFIG_MACH_SLTE_CU) || defined(CONFIG_MACH_SLTE_TD)
 	if (system_rev < 2)
 		st->position = 2;
+#elif defined(CONFIG_MACH_SLTE_ATT) || defined(CONFIG_MACH_SLTE_TMO) \
+|| defined(CONFIG_MACH_SLTE_DCM) || defined(CONFIG_MACH_SLTE_KDI)
+	if (system_rev < 1)
+		st->position = 4;
 #endif
-
 	return 0;
 }
 

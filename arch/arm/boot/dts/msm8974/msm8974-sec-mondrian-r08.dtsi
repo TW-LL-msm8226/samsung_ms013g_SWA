@@ -173,8 +173,8 @@
 		   SEC_BATTERY_FULL_CONDITION_NOTIMEFULL |
 		   SEC_BATTERY_FULL_CONDITION_VCELL */
 		battery,full_condition_type = <13>;
-		battery,full_condition_soc = <97>;
-		battery,full_condition_vcell = <4300>;
+		battery,full_condition_soc = <93>;
+		battery,full_condition_vcell = <4250>;
 
 		battery,recharge_check_count = <1>;
 		battery,recharge_condition_type = <4>; /* SEC_BATTERY_RECHARGE_CONDITION_VCELL */
@@ -201,6 +201,7 @@
 			battery,fast_charging_current = <2100 0 460 2100 460 1200 1000 460 0 1200 750 2100 2100 0 1300 300 700 1300 300 1000 2100 0 0>;
 			battery,full_check_current_1st = <350 0 350 350 350 350 350 350 0 350 350 350 350 0 350 350 350 350 350 350 350 0 0>;
 			battery,full_check_current_2nd = <1200 0 1200 1200 1200 1200 1200 1200 0 1200 1200 1200 1200 0 1200 1200 1200 1200 1200 1200 1200 0 0>;
+			battery,full_check_current_1st_sdi = <200 0 200 200 200 200 200 200 0 200 200 200 200 0 200 200 200 200 200 200 200 0 0>;
 		};
 	};
 

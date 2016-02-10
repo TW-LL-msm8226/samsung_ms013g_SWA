@@ -50,7 +50,7 @@ static void enable_sensor(struct ssp_data *data,
 
 	switch (data->aiCheckStatus[iSensorType]) {
 	case ADD_SENSOR_STATE:
-		pr_debug("[SSP]: %s - add %u, New = %lldns\n",
+		pr_debug("[SSP] %s - add %u, New = %lldns\n",
 			 __func__, 1 << iSensorType, dNewDelay);
 
 		memcpy(&uBuf[0], &dMsDelay, 4);
@@ -91,7 +91,7 @@ static void enable_sensor(struct ssp_data *data,
 			== get_msdelay(data->adDelayBuf[iSensorType]))
 			break;
 
-		pr_debug("[SSP]: %s - Change %u, New = %lldns\n",
+		pr_debug("[SSP] %s - Change %u, New = %lldns\n",
 			__func__, 1 << iSensorType, dNewDelay);
 
 		memcpy(&uBuf[0], &dMsDelay, 4);
@@ -124,7 +124,7 @@ static void change_sensor_delay(struct ssp_data *data,
 			== get_msdelay(data->adDelayBuf[iSensorType]))
 			break;
 
-		ssp_dbg("[SSP]: %s - Change %u, New = %lldns\n",
+		ssp_dbg("[SSP] %s - Change %u, New = %lldns\n",
 			__func__, 1 << iSensorType, dNewDelay);
 
 		memcpy(&uBuf[0], &dMsDelay, 4);
@@ -147,7 +147,7 @@ static int ssp_remove_sensor(struct ssp_data *data,
 {
 	u8 uBuf[4];
 	int64_t dSensorDelay = data->adDelayBuf[uChangedSensor];
-	pr_debug("[SSP]: %s - remove sensor = %d, current state = %d\n",
+	pr_debug("[SSP] %s - remove sensor = %d, current state = %d\n",
 		__func__, (1 << uChangedSensor), uNewEnable);
 
 	data->adDelayBuf[uChangedSensor] = DEFUALT_POLLING_DELAY;
@@ -193,7 +193,7 @@ static ssize_t show_enable_irq(struct device *dev,
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	ssp_dbg("[SSP]: %s - %d\n", __func__, !data->bSspShutdown);
+	ssp_dbg("[SSP] %s - %d\n", __func__, !data->bSspShutdown);
 
 	return sprintf(buf, "%d\n", !data->bSspShutdown);
 }
@@ -225,7 +225,7 @@ static ssize_t show_sensors_enable(struct device *dev,
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	pr_debug("[SSP]: %s - cur_enable = %d\n", __func__,
+	pr_debug("[SSP] %s - cur_enable = %d\n", __func__,
 		 atomic_read(&data->aSensorEnable));
 
 	return sprintf(buf, "%9u\n", atomic_read(&data->aSensorEnable));
@@ -243,7 +243,7 @@ static ssize_t set_sensors_enable(struct device *dev,
 		return -EINVAL;
 
 	uNewEnable = (unsigned int)dTemp;
-	ssp_dbg("[SSP]: %s - new_enable = %u, old_enable = %u\n", __func__,
+	ssp_dbg("[SSP] %s - new_enable = %u, old_enable = %u\n", __func__,
 		 uNewEnable, atomic_read(&data->aSensorEnable));
 
 	if ((uNewEnable != atomic_read(&data->aSensorEnable)) &&
@@ -269,13 +269,13 @@ static ssize_t set_sensors_enable(struct device *dev,
 						accel_open_calibration(data);
 						iRet = set_accel_cal(data);
 						if (iRet < 0)
-							pr_err("[SSP]: %s - set_accel_cal failed %d\n", __func__, iRet);
+							pr_err("[SSP] %s - set_accel_cal failed %d\n", __func__, iRet);
 					}
 					else if (uChangedSensor == GYROSCOPE_SENSOR) {
 						gyro_open_calibration(data);
 						iRet = set_gyro_cal(data);
 						if (iRet < 0)
-							pr_err("[SSP]: %s - set_gyro_cal failed %d\n", __func__,  iRet);
+							pr_err("[SSP] %s - set_gyro_cal failed %d\n", __func__,  iRet);
 					}
 #if defined(CONFIG_SENSORS_SSP_BMP182)
 					else if (uChangedSensor == PRESSURE_SENSOR)
@@ -630,6 +630,30 @@ static ssize_t set_prox_delay(struct device *dev,
 	return size;
 }
 
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+static ssize_t show_uv_delay(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%lld\n", data->adDelayBuf[UV_SENSOR]);
+}
+
+static ssize_t set_uv_delay(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	int64_t dNewDelay;
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	if (kstrtoll(buf, 10, &dNewDelay) < 0)
+		return -EINVAL;
+
+	pr_info("[SSP] %s - %lld\n", __func__, dNewDelay);
+	change_sensor_delay(data, UV_SENSOR, dNewDelay);
+
+	return size;
+}
+#endif
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 static ssize_t show_temp_humi_delay(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -732,6 +756,13 @@ static struct device_attribute dev_attr_light_poll_delay
 static struct device_attribute dev_attr_prox_poll_delay
 	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
 	show_prox_delay, set_prox_delay);
+
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+static struct device_attribute dev_attr_uv_poll_delay
+	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
+	show_uv_delay, set_uv_delay);
+#endif
+
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 static struct device_attribute dev_attr_temp_humi_poll_delay
 	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
@@ -888,6 +919,11 @@ int initialize_sysfs(struct ssp_data *data)
 		&dev_attr_prox_poll_delay))
 		goto err_prox_input_dev;
 
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	if (device_create_file(&data->uv_input_dev->dev,
+		&dev_attr_uv_poll_delay))
+		goto err_uv_input_dev;
+#endif
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	if (device_create_file(&data->temp_humi_input_dev->dev,
 			&dev_attr_temp_humi_poll_delay))
@@ -928,6 +964,9 @@ int initialize_sysfs(struct ssp_data *data)
 	initialize_pressure_factorytest(data);
 #endif
 	initialize_magnetic_factorytest(data);
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	initialize_uv_factorytest(data);
+#endif
 	initialize_mcu_factorytest(data);
 #if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
 	defined(CONFIG_SENSORS_SSP_MAX88920)
@@ -964,6 +1003,11 @@ err_mag_input_dev:
 		&dev_attr_temp_humi_poll_delay);
 err_temp_humi_input_dev:
 #endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	device_remove_file(&data->uv_input_dev->dev,
+		&dev_attr_uv_poll_delay);
+err_uv_input_dev:
+#endif
 	device_remove_file(&data->prox_input_dev->dev,
 		&dev_attr_prox_poll_delay);
 err_prox_input_dev:
@@ -995,6 +1039,10 @@ void remove_sysfs(struct ssp_data *data)
 	device_remove_file(&data->temp_humi_input_dev->dev,
 		&dev_attr_temp_humi_poll_delay);
 #endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	device_remove_file(&data->uv_input_dev->dev,
+		&dev_attr_uv_poll_delay);
+#endif
 	device_remove_file(&data->mag_input_dev->dev,
 		&dev_attr_mag_poll_delay);
 	device_remove_file(&data->uncal_mag_input_dev->dev,
@@ -1015,6 +1063,9 @@ void remove_sysfs(struct ssp_data *data)
 	remove_pressure_factorytest(data);
 #endif
 	remove_magnetic_factorytest(data);
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	remove_uv_factorytest(data);
+#endif
 	remove_mcu_factorytest(data);
 #if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921) || \
 	defined(CONFIG_SENSORS_SSP_MAX88920)

@@ -55,6 +55,7 @@
 
 #include "irda_fw_version202.h"
 #include "irda_fw_version103.h"
+#include "irda_fw_version104.h"
 
 #include <mach/gpio.h>
 #include <linux/ir_remote_con_mc96.h>
@@ -204,8 +205,8 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 	u8 buf_ir_test[8];
 	const u8 *IRDA_fw;
 	const u8 calc_chksum[] = {0x3A, 0x02, 0x10, 0x00, 0xF0, 0x20, 0xFF, 0xDF};
-	IRDA_fw     = IRDA_binary_103;
-	frame_count = FRAME_COUNT_103;
+	IRDA_fw     = IRDA_binary_104;
+	frame_count = FRAME_COUNT_104;
 
 	/* Switch on chip in Bootloader mode, wake low */
 	irda_led_onoff(1);
@@ -213,14 +214,14 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 	gpio_set_value(data->pdata->irda_poweron, 1);
 	gpio_tlmm_config(GPIO_CFG(data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
 			GPIO_CFG_PULL_UP, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-	msleep(140);
+	msleep(150);
 	for(i = 0; i < FW_RW_RETRY; i++) {
 		ret = i2c_master_recv(client, buf_ir_test, MC96_READ_LENGTH);
 		if (ret < 0) {
 			pr_err(KERN_ERR " %s: err %d\n", __func__, ret);
 		}
 		else if((buf_ir_test[0] << 8 | buf_ir_test[1]) == 0x0001) {
-			printk(KERN_CRIT "%s: Perform checksum calculation next\n", __func__);
+			printk(KERN_CRIT "%s: Perform checksum calculation next, ret %d\n", __func__,ret);
 			break;
 		}
 		msleep(60);
@@ -262,11 +263,12 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 	print_hex_dump(KERN_CRIT, "IRDA Master Rx: ", 16, 1,
 					DUMP_PREFIX_ADDRESS, buf_ir_test, 8, 1);
 #endif
-	if((buf_ir_test[0] << 8 | buf_ir_test[1]) == 0x6EBA) {
+	if((buf_ir_test[0] << 8 | buf_ir_test[1]) == 0x6E93) {
 		printk(KERN_CRIT "%s: irda fw fine, exit now\n", __func__);
 		download_pass = 1;
 		goto powerdown_dev;
 	}
+	printk(KERN_CRIT "%s: Start download new Firmware\n", __func__);
 	msleep(100);
 	/* Start FW download */
 	for (i = 0; i < frame_count; i++) {
@@ -301,8 +303,8 @@ static int irda_fw_update(struct ir_remocon_data *ir_data)
 #endif
 
 	ret = buf_ir_test[0] << 8 | buf_ir_test[1];
-	if (ret == 0x6EBA) {
-		printk(KERN_INFO "1. %s: boot down complete\n", __func__);
+	if (ret == 0x6E93) {
+		printk(KERN_INFO " IrDA new firmware downloaded\n");
 		download_pass = 1;
 		goto powerdown_dev;
 	} else {
@@ -376,6 +378,17 @@ static int irda_read_device_info(struct ir_remocon_data *ir_data)
 	data->on_off = 0;
 	return 0;
 }
+static void irda_reset_chip_user(struct ir_remocon_data *data) {
+	irda_led_onoff(0);
+	gpio_set_value(data->pdata->irda_poweron, 0);
+	data->pdata->ir_wake_en(data->pdata,1);
+	gpio_tlmm_config(GPIO_CFG(data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
+		GPIO_CFG_PULL_UP, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+	udelay(100);
+	gpio_set_value(data->pdata->irda_poweron, 1);
+	msleep(150);
+	irda_led_onoff(1);
+}
 
 static void irda_remocon_work(struct ir_remocon_data *ir_data, int count)
 {
@@ -384,27 +397,25 @@ static void irda_remocon_work(struct ir_remocon_data *ir_data, int count)
 	struct i2c_client *client = data->client;
 
 	int buf_size = count+2;
-	int ret, retry;
-	int sleep_timing;
-	int end_data;
+	int ret, retry, ng_retry, sng_retry;
 	int emission_time;
 	int ack_pin_onoff;
+#if defined(CONFIG_MACH_ATLANTICLTE_ATT) || defined(CONFIG_MACH_ATLANTICLTE_USC)
+	int sleep_timing;
+	int end_data;
+#endif
 #ifdef DEBUG
+	int i;
 	u8 buf[8];
 #endif
 	if (count_number >= 100)
 		count_number = 0;
 
 	count_number++;
+	ng_retry = sng_retry = 0;
 	data->on_off = 1;
 	/* Power on in user IR mode */
-	irda_led_onoff(1);
-	data->pdata->ir_wake_en(data->pdata,1);
-	gpio_set_value(data->pdata->irda_poweron, 1);
-	gpio_tlmm_config(GPIO_CFG(ir_data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
-		GPIO_CFG_PULL_UP, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-	msleep(125);
-
+	irda_reset_chip_user(ir_data);
 	printk(KERN_INFO "%s: total buf_size: %d\n", __func__, buf_size);
 #ifdef DEBUG
 	ret = i2c_master_recv(client, buf, MC96_READ_LENGTH);
@@ -413,11 +424,17 @@ static void irda_remocon_work(struct ir_remocon_data *ir_data, int count)
 
 	print_hex_dump(KERN_CRIT, "irda: IRDA Master Rx: ", 16, 1,
 				DUMP_PREFIX_ADDRESS, buf, 8, 1);
+	printk("%s: print stored bytes\n", __func__);
+	for (i = 0; i < buf_size; i++)
+		printk(KERN_INFO "0x%02x, ", data->signal[i]);
+	printk("\n");
+
 #endif
 	irda_add_checksum_length(data, count);
 
 	mutex_lock(&data->mutex);
 
+resend_data:
 	ret = i2c_master_send(client, data->signal, buf_size);
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: err1 %d\n", __func__, ret);
@@ -431,8 +448,13 @@ static void irda_remocon_work(struct ir_remocon_data *ir_data, int count)
 	for(retry = 0; retry < 10; retry++) {
 		if (gpio_get_value(data->pdata->irda_irq_gpio)) {
 			if(retry == 9) {
-			printk(KERN_INFO "%s : %d Checksum NG!\n",
-				__func__, count_number);
+				ng_retry++;
+				if(ng_retry < 2) {
+					irda_reset_chip_user(ir_data);
+					goto resend_data;
+				}
+				printk(KERN_INFO "%s : %d Checksum NG!\n",
+					__func__, count_number);
 			}
 			ack_pin_onoff = 1;
 			msleep(3);
@@ -445,46 +467,44 @@ static void irda_remocon_work(struct ir_remocon_data *ir_data, int count)
 	}
 	ack_number = ack_pin_onoff;
 
-	mutex_unlock(&data->mutex);
-
-#if 0
-	for (i = 0; i < buf_size; i++) {
-		printk(KERN_INFO "%s: data[%d] : 0x%02x\n", __func__, i,
-					data->signal[i]);
-	}
-#endif
 	data->count = 2;
-
+#if defined(CONFIG_MACH_ATLANTICLTE_ATT) || defined(CONFIG_MACH_ATLANTICLTE_USC)
 	end_data = data->signal[count-2] << 8 | data->signal[count-1];
-	emission_time = \
-		(1000 * (data->ir_sum - end_data) / (data->ir_freq)) + 10;
+	emission_time = (1000 * (data->ir_sum - end_data) / (data->ir_freq)) + 10;
 	sleep_timing = emission_time - 130;
 	if (sleep_timing > 0)
-		msleep(sleep_timing);
-/*
-	printk(KERN_INFO "%s: sleep_timing = %d\n", __func__, sleep_timing);
-*/
+		usleep(sleep_timing);
+#endif
+
 	emission_time = \
-		(1000 * (data->ir_sum) / (data->ir_freq)) + 50;
+		(1000 * (data->ir_sum) / (data->ir_freq));
 	if (emission_time > 0)
-		msleep(emission_time);
-		printk(KERN_INFO "%s: emission_time = %d\n",
-					__func__, emission_time);
-	for(retry = 0; retry < 30; retry++) {
+		usleep(emission_time);
+	printk(KERN_INFO "%s: emission_time = %d\n",
+				__func__, emission_time);
+
+	for(retry = 0; retry < 3; retry++) {
 		if (gpio_get_value(data->pdata->irda_irq_gpio)) {
 			printk(KERN_INFO "%s : %d Sending IR OK!\n",
 					__func__, count_number);
 			ack_pin_onoff = 4;
 			break;
 		} else {
-			if(retry == 29) {
-			printk(KERN_INFO "%s : %d Sending IR NG!\n",
+			if(retry == 2) {
+				sng_retry++;
+				if(sng_retry < 2) {
+					irda_reset_chip_user(ir_data);
+					goto resend_data;
+				}
+				printk(KERN_INFO "%s : %d Sending IR NG!\n",
 					__func__, count_number);
 			}
 			ack_pin_onoff = 2;
 			msleep(65);
 		}
 	}
+
+	mutex_unlock(&data->mutex);
 
 	ack_number += ack_pin_onoff;
 #ifndef USE_STOP_MODE
@@ -495,13 +515,9 @@ static void irda_remocon_work(struct ir_remocon_data *ir_data, int count)
 #endif
 	data->ir_freq = 0;
 	data->ir_sum = 0;
-#if !defined(CONFIG_MACH_ATLANTICLTE_ATT)
+
 	gpio_tlmm_config(GPIO_CFG(ir_data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
 		GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-#else
-	gpio_tlmm_config(GPIO_CFG(ir_data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
-		GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-#endif
 }
 
 
@@ -512,6 +528,9 @@ static ssize_t remocon_store(struct device *dev, struct device_attribute *attr,
 	unsigned int _data;
 	int count, i, ret;
 
+#ifdef DEBUG
+	printk(KERN_CRIT "%s irda -- %s\n", __func__, buf);
+#endif
 	ret = 0;
 	for (i = 0; i < MAX_SIZE; i++) {
 		if (sscanf(buf++, "%u", &_data) == 1) {
@@ -520,22 +539,25 @@ static ssize_t remocon_store(struct device *dev, struct device_attribute *attr,
 
 			if (data->count == 2) {
 				data->ir_freq = _data;
-				if (data->on_off) {
-					data->pdata->ir_wake_en(data->pdata,0);
-					udelay(200);
-					data->pdata->ir_wake_en(data->pdata,1);
-					msleep(30);
-				}
-				data->signal[2] = _data >> 16;
-				data->signal[3] = (_data >> 8) & 0xFF;
-				data->signal[4] = _data & 0xFF;
-				data->count += 3;
+				data->signal[2] = 0x40; // Mode
+				data->signal[3] = _data >> 16;
+				data->signal[4] = (_data >> 8) & 0xFF;
+				data->signal[5] = _data & 0xFF;
+				data->count += 4;
 			} else {
 				data->ir_sum += _data;
 				count = data->count;
-				data->signal[count] = _data >> 8;
-				data->signal[count+1] = _data & 0xFF;
-				data->count += 2;
+				if(_data > 0x7FFF) {
+					data->signal[count] = _data >> 24;
+					data->signal[count+1] = _data >> 16;
+					data->signal[count+2] = _data >> 8;
+					data->signal[count+3] = _data & 0xFF;
+					data->count += 4;
+				} else {
+					data->signal[count] = _data >> 8;
+					data->signal[count+1] = _data & 0xFF;
+					data->count += 2;
+				}
 			}
 
 			while (_data > 0) {
@@ -729,20 +751,28 @@ static int __devinit irda_remocon_probe(struct i2c_client *client,
 	data->pdata->ir_wake_en(data->pdata,1);
 	gpio_set_value(data->pdata->irda_poweron, 1);
 
-	if (IS_ERR(ir_remocon_dev))
+	if (IS_ERR(ir_remocon_dev)) {
 		pr_err("Failed to create ir_remocon_dev device\n");
+		goto err_fw_update_fail;
+	}
 
-	if (device_create_file(ir_remocon_dev, &dev_attr_ir_send) < 0)
+	if (device_create_file(ir_remocon_dev, &dev_attr_ir_send) < 0) {
 		pr_err("Failed to create device file(%s)!\n",
 				dev_attr_ir_send.attr.name);
+		goto err_del_dev;
+	}
 
-	if (device_create_file(ir_remocon_dev, &dev_attr_ir_send_result) < 0)
+	if (device_create_file(ir_remocon_dev, &dev_attr_ir_send_result) < 0) {
 		pr_err("Failed to create device file(%s)!\n",
 				dev_attr_ir_send.attr.name);
+		goto err_del_dev_file_send;
+	}
 
-	if (device_create_file(ir_remocon_dev, &dev_attr_check_ir) < 0)
+	if (device_create_file(ir_remocon_dev, &dev_attr_check_ir) < 0) {
 		pr_err("Failed to create device file(%s)!\n",
 				dev_attr_check_ir.attr.name);
+		goto err_del_dev_file_send_result;
+	}
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
@@ -750,15 +780,20 @@ static int __devinit irda_remocon_probe(struct i2c_client *client,
 	data->early_suspend.resume = ir_remocon_late_resume;
 	register_early_suspend(&data->early_suspend);
 #endif
-#if !defined(CONFIG_MACH_ATLANTICLTE_ATT)
 	gpio_tlmm_config(GPIO_CFG(data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
 		GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-#else
-	gpio_tlmm_config(GPIO_CFG(data->pdata->irda_irq_gpio,  0, GPIO_CFG_INPUT,
-		GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-#endif
+
 	return 0;
 
+err_del_dev_file_send_result:
+	device_remove_file(ir_remocon_dev, &dev_attr_ir_send_result);
+
+err_del_dev_file_send:
+	device_remove_file(ir_remocon_dev, &dev_attr_ir_send);
+
+err_del_dev:
+	device_destroy(sec_class,ir_remocon_dev->devt);
+	
 err_fw_update_fail:
 	regulator_put(vled_ic);
 err_free_mem:

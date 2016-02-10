@@ -31,6 +31,9 @@
 #include "sr130pc20_yuv_matisse_wifi_usa.h"
 #elif defined (CONFIG_SEC_MATISSE_PROJECT)
 #include "sr130pc20_yuv_matisse.h"
+#elif defined (CONFIG_MACH_RUBENSLTE_OPEN) || \
+      defined (CONFIG_MACH_RUBENSWIFI_OPEN)
+#include "sr130pc20_yuv_ruben.h"
 #else
 #include "sr130pc20_yuv.h"
 #endif
@@ -719,9 +722,9 @@ int sr130pc20_regs_from_sd_tunning(struct msm_camera_i2c_reg_conf *settings, str
 	if (reg)
 		start = (reg + 14);
 	if (addr == 0xff){
-		usleep_range(value * 10, (value* 10) + 10);
+		msleep(value * 10);
 		pr_err("delay = %d\n", (int)value*10);
-		}
+	}
 	else{
 		rc=s_ctrl->sensor_i2c_client->i2c_func_tbl->
 				i2c_write(s_ctrl->sensor_i2c_client, addr,

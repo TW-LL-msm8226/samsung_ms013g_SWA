@@ -2,7 +2,7 @@
  * drivers/mmc/host/sdhci-msm.c - Qualcomm MSM SDHCI Platform
  * driver source file
  *
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -49,6 +49,10 @@
 #include <linux/iopoll.h>
 
 #include "sdhci-pltfm.h"
+
+#if defined(CONFIG_SAMSUNG_SDMMC_ENG_TEST)
+#include <linux/debugfs.h>
+#endif
 
 enum sdc_mpm_pin_state {
 	SDC_DAT1_DISABLE,
@@ -916,6 +920,14 @@ retry:
 		memset(data_buf, 0, size);
 		mmc_wait_for_req(mmc, &mrq);
 
+		/*
+		 * wait for 146 MCLK cycles for the card to send out the data
+		 * and thus move to TRANS state. As the MCLK would be minimum
+		 * 200MHz when tuning is performed, we need maximum 0.73us
+		 * delay. To be on safer side 1ms delay is given.
+		 */
+		if (cmd.error)
+			usleep_range(1000, 1200);
 		if (!cmd.error && !data.error &&
 			!memcmp(data_buf, tuning_block_pattern, size)) {
 			/* tuning is successful at this tuning point */
@@ -1094,10 +1106,12 @@ static int sdhci_msm_dt_parse_vreg_info(struct device *dev,
 	struct device_node *np = dev->of_node;
 
 	snprintf(prop_name, MAX_PROP_SIZE, "%s-supply", vreg_name);
+#if !defined(CONFIG_SEC_PATEK_PROJECT)
 	if (!of_parse_phandle(np, prop_name, 0)) {
 		dev_info(dev, "No vreg data found for %s\n", vreg_name);
 		return ret;
 	}
+#endif
 
 	vreg = devm_kzalloc(dev, sizeof(*vreg), GFP_KERNEL);
 	if (!vreg) {
@@ -1105,6 +1119,28 @@ static int sdhci_msm_dt_parse_vreg_info(struct device *dev,
 		ret = -ENOMEM;
 		return ret;
 	}
+#if defined(CONFIG_SEC_PATEK_PROJECT)
+	if (!strcmp(dev_name(dev), "msm_sdcc.3")) {
+		if (!strcmp(vreg_name, "vdd")) {
+			vreg->reg = regulator_get(dev, "max77826_ldo10");
+			dev_info(dev, "max77826_ldo10 is for %s\n", vreg_name);
+		}
+		else if (!strcmp(vreg_name, "vdd-io")) {
+			vreg->reg = regulator_get(dev, "max77826_ldo4");
+			dev_info(dev, "max77826_ldo4 is for %s\n", vreg_name);
+		}
+
+		if (IS_ERR(vreg->reg))
+			vreg->reg = NULL;
+
+		if (!vreg->reg)
+			dev_err(dev, "Settng Regulator for %s is failed\n", vreg_name);
+		else if (!strcmp(vreg_name, "vdd-io")) {
+			vreg->set_voltage_sup = true;
+			regulator_set_voltage(vreg->reg, 2950000, 2950000);
+		}
+	}
+#endif
 
 	vreg->name = vreg_name;
 
@@ -1825,6 +1861,11 @@ static int sdhci_msm_vreg_enable(struct sdhci_msm_reg_data *vreg)
 {
 	int ret = 0;
 
+	if (!vreg->reg) {
+		pr_err("%s: %s Cannot find Regulator\n", __func__, vreg->name);
+		return ret;
+	}
+
 #if defined(CONFIG_ARCH_MSM8974)\
 	|| defined(CONFIG_MACH_FRESCOLTESKT)||defined(CONFIG_MACH_FRESCOLTEKTT)||defined(CONFIG_MACH_FRESCOLTELGT)
 	if (vreg->rpm_reg) {
@@ -1864,6 +1905,11 @@ static int sdhci_msm_vreg_enable(struct sdhci_msm_reg_data *vreg)
 static int sdhci_msm_vreg_disable(struct sdhci_msm_reg_data *vreg)
 {
 	int ret = 0;
+
+	if (!vreg->reg) {
+		pr_err("%s: %s Cannot find Regulator\n", __func__, vreg->name);
+		return ret;
+	}
 
 	/* Never disable regulator marked as always_on */
 	if (vreg->is_enabled && !vreg->is_always_on) {
@@ -1910,7 +1956,7 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 		goto out;
 	}
 
-#if defined(CONFIG_SEC_K_PROJECT)
+#if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_MACH_CHAGALL_KDI)
 	/* 
 	 * In SD Card Case using FPGA, 
 	 * Turn on : vdd_io on -> vdd on
@@ -1934,7 +1980,7 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 		if (vreg_table[i]) {
 			if (enable)
 				ret = sdhci_msm_vreg_enable(vreg_table[i]);
-#if defined(CONFIG_SEC_K_PROJECT)
+#if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_MACH_CHAGALL_KDI)
 			else {
 				ret = sdhci_msm_vreg_disable(vreg_table[i]);
 				if (pdata->status_gpio && i == 0)
@@ -2330,8 +2376,28 @@ static void sdhci_msm_check_power_status(struct sdhci_host *host, u32 req_type)
 	 * Handle I/O voltage switch here if this request is for SDC3. 
 	 * SDC3 Don't use PWR_IRQ.
 	 */
-#ifdef CONFIG_SEC_K_PROJECT
+#if defined(CONFIG_SEC_K_PROJECT)
 	if (strcmp(host->hw_name, "msm_sdcc.3") == 0 && !done && system_rev >= 6) { 
+		if (req_type == REQ_IO_HIGH) {
+			/* Switch voltage High */
+			if (sdhci_msm_set_vdd_io_vol(msm_host->pdata, VDD_IO_HIGH, 0)) {
+				pr_err("%s: %s: Voltage Switch to High is Fail\n", mmc_hostname(host->mmc), __func__);
+				return;
+			}
+			msm_host->curr_io_level = REQ_IO_HIGH;
+			done = true;
+		} else if (req_type == REQ_IO_LOW) { 
+			/* Switch voltage Low */
+			if (sdhci_msm_set_vdd_io_vol(msm_host->pdata, VDD_IO_LOW, 0)) {
+				pr_err("%s: %s: Voltage Switch to Low is Fail\n", mmc_hostname(host->mmc), __func__);
+				return;
+			}
+			msm_host->curr_io_level = REQ_IO_LOW;
+			done = true;
+		}
+	} 
+#elif defined(CONFIG_SEC_PATEK_PROJECT) || defined(CONFIG_MACH_CHAGALL_KDI)
+	if (strcmp(host->hw_name, "msm_sdcc.3") == 0 && !done) { 
 		if (req_type == REQ_IO_HIGH) {
 			/* Switch voltage High */
 			if (sdhci_msm_set_vdd_io_vol(msm_host->pdata, VDD_IO_HIGH, 0)) {
@@ -2566,6 +2632,12 @@ static void sdhci_msm_set_clock(struct sdhci_host *host, unsigned int clock)
 	bool curr_pwrsave;
 
 	if (!clock) {
+		/*
+		 * disable pwrsave to ensure clock is not auto-gated until
+		 * the rate is >400KHz (initialization complete).
+		 */
+		writel_relaxed(readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC) &
+			~CORE_CLK_PWRSAVE, host->ioaddr + CORE_VENDOR_SPEC);
 		sdhci_msm_prepare_clocks(host, false);
 		host->clock = clock;
 		return;
@@ -2937,7 +3009,7 @@ static ssize_t t_flash_detect_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct sdhci_msm_host *msm_host = dev_get_drvdata(dev);
-#if defined(CONFIG_MACH_SERRANO) || defined(CONFIG_SEC_ATLANTIC_PROJECT)
+#if defined(CONFIG_MACH_SERRANO) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_MACH_A5LTE_JPN_KDI)
 	if (msm_host->mmc->card) {
 		printk(KERN_DEBUG "External sd: card inserted.\n");
 		return sprintf(buf, "Insert\n");
@@ -2968,6 +3040,389 @@ static ssize_t t_flash_detect_show(struct device *dev,
 }
 
 static DEVICE_ATTR(status, 0444, t_flash_detect_show, NULL);
+
+#if defined(CONFIG_SAMSUNG_SDMMC_ENG_TEST)
+/* DebugFS for Pin Setting */
+static int sdhci_msm_drv_str_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = inode->i_private;
+    return 0;
+}
+
+static int sdhci_msm_drv_str_read(struct file *filp, char __user *ubuf,
+        size_t cnt, loff_t *ppos)
+{
+    char buf[512] = {0, };
+    int i = 0;
+    struct sdhci_msm_host *host = filp->private_data;
+    struct sdhci_msm_pad_data *curr;
+    int clk = -1, cmd = -1, dat = -1;
+
+    if (!host || !host->pdata || !host->pdata->pin_data)
+        return 0;
+
+	sprintf(buf, "[%s : %s]\n", host->pdev->name, host->mmc ? mmc_hostname(host->mmc) : "UnKnown");
+
+/* SDC3 Port must change the settings via GPIO */
+    if (host->pdata->pin_data->is_gpio) {
+		struct sdhci_msm_gpio_data *gpio_curr;
+		uint32_t bits;
+		int gpio_drv = -1;
+
+        gpio_curr = host->pdata->pin_data->gpio_data;
+        for (i = 0; i < gpio_curr->size; i++) {
+            if (gpio_is_valid(gpio_curr->gpio[i].no)) {
+				/* #define MSM_TLMM_BASE		IOMEM(0xFA017000)	*/
+				bits = readl_relaxed(IOMEM(0xFA017000) + 0x1000 + (0x10 * gpio_curr->gpio[i].no));
+				gpio_drv = (bits >> 6) & 0x7;
+
+				sprintf(buf, "%sGPIO[%u] : %dmA\n",
+					buf, gpio_curr->gpio[i].no, gpio_drv * 2 + 2);
+            }
+        }
+        return simple_read_from_buffer(ubuf, cnt, ppos, buf, 512);
+    }
+
+    curr = host->pdata->pin_data->pad_data;
+    for (i = 0; i < curr->drv->size; i++) {
+        switch (curr->drv->on[i].no) {
+            case TLMM_HDRV_SDC1_CLK:
+            case TLMM_HDRV_SDC2_CLK:
+            case TLMM_HDRV_SDC3_CLK:
+            case TLMM_HDRV_SDC4_CLK:
+                clk = curr->drv->on[i].val * 2 + 2;
+                break;
+            case TLMM_HDRV_SDC1_CMD:
+            case TLMM_HDRV_SDC2_CMD:
+            case TLMM_HDRV_SDC3_CMD:
+            case TLMM_HDRV_SDC4_CMD:
+                cmd = curr->drv->on[i].val * 2 + 2;
+                break;
+            case TLMM_HDRV_SDC1_DATA:
+            case TLMM_HDRV_SDC2_DATA:
+            case TLMM_HDRV_SDC3_DATA:
+            case TLMM_HDRV_SDC4_DATA:
+                dat = curr->drv->on[i].val * 2 + 2;
+                break;
+            default:
+                continue;
+        }
+    }
+    sprintf(buf, "%sCLOCK : %dmA\nCMD   : %dmA\nDATA  : %dmA\n", buf, clk, cmd, dat);
+
+    return simple_read_from_buffer(ubuf, cnt, ppos, buf, 512);
+}
+
+static int sdhci_msm_drv_str_write(struct file *filp,
+        const char __user *ubuf, size_t cnt,
+        loff_t *ppos)
+{
+    struct sdhci_msm_host *host = filp->private_data;
+    struct sdhci_msm_pad_data *curr;
+    int i;
+    int clk, cmd, dat, value;
+	int gpio_buf[6];
+
+    if (!host || !host->pdata || !host->pdata->pin_data)
+        return 0;
+
+/* SDC3 Port must change the settings via GPIO */
+    if (host->pdata->pin_data->is_gpio) {
+		struct sdhci_msm_gpio_data *gpio_curr;
+		uint32_t bits;
+
+		if (sscanf(ubuf, "%d %d %d %d %d %d",
+			&gpio_buf[0], &gpio_buf[1], &gpio_buf[2], &gpio_buf[3], &gpio_buf[4], &gpio_buf[5]) != 6)
+			return 0;
+
+		gpio_curr = host->pdata->pin_data->gpio_data;
+		for (i = 0; i < gpio_curr->size; i++) {
+            if (gpio_is_valid(gpio_curr->gpio[i].no)) {
+				/* #define MSM_TLMM_BASE		IOMEM(0xFA017000)	*/
+				bits = readl_relaxed(IOMEM(0xFA017000) + 0x1000 + (0x10 * gpio_curr->gpio[i].no));
+				bits &= 0xFFFFFE3F;
+				bits |= ((gpio_buf[i] - 2) / 2) << 6;
+				writel_relaxed(bits, IOMEM(0xFA017000) + 0x1000 + (0x10 * gpio_curr->gpio[i].no));
+            }
+        }
+		return cnt;
+	}
+
+    if (sscanf(ubuf, "%d %d %d", &clk, &cmd, &dat) != 3)
+        return 0;
+
+    curr = host->pdata->pin_data->pad_data;
+    for (i = 0; i < curr->drv->size; i++) {
+        switch (curr->drv->on[i].no) {
+            case TLMM_HDRV_SDC1_CLK:
+            case TLMM_HDRV_SDC2_CLK:
+            case TLMM_HDRV_SDC3_CLK:
+            case TLMM_HDRV_SDC4_CLK:
+                value = (clk - 2) / 2;
+                if (value == -1)
+                    continue;
+                curr->drv->on[i].val = value;
+                break;
+            case TLMM_HDRV_SDC1_CMD:
+            case TLMM_HDRV_SDC2_CMD:
+            case TLMM_HDRV_SDC3_CMD:
+            case TLMM_HDRV_SDC4_CMD:
+                value = (cmd - 2) / 2;
+                if (value == -1)
+                    continue;
+                curr->drv->on[i].val = value;
+                break;
+            case TLMM_HDRV_SDC1_DATA:
+            case TLMM_HDRV_SDC2_DATA:
+            case TLMM_HDRV_SDC3_DATA:
+            case TLMM_HDRV_SDC4_DATA:
+                value = (dat - 2) / 2;
+                if (value == -1)
+                    continue;
+                curr->drv->on[i].val = value;
+                break;
+            default:
+                continue;
+        }
+        msm_tlmm_set_hdrive(curr->drv->on[i].no,
+                curr->drv->on[i].val);
+    }
+    return cnt;
+}
+
+static const struct file_operations sdhci_msm_drv_str_fops = {
+    .open = sdhci_msm_drv_str_open,
+    .read = sdhci_msm_drv_str_read,
+    .write = sdhci_msm_drv_str_write,
+};
+static void sdhci_msm_drv_str_create(struct sdhci_msm_host *host)
+{
+    struct mmc_host *mmc = host->mmc;
+
+    if (!mmc || ! mmc->debugfs_root)
+        return;
+
+	if (!debugfs_create_file("drv_str",
+	        S_IROTH | S_IWOTH | S_IRGRP | S_IWGRP | S_IRUSR | S_IWUSR,
+			mmc->debugfs_root, host, &sdhci_msm_drv_str_fops))
+		pr_err("%s: Cannot make debugfs for drv_str.\n", mmc_hostname(host->mmc));
+}
+
+static int sdhci_msm_pull_reg_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = inode->i_private;
+    return 0;
+}
+
+static int sdhci_msm_pull_reg_read(struct file *filp, char __user *ubuf,
+        size_t cnt, loff_t *ppos)
+{
+    char buf[512] = {0, };
+    int i = 0;
+    struct sdhci_msm_host *host = filp->private_data;
+    struct sdhci_msm_pad_data *curr;
+    int clk = -1, cmd = -1, dat = -1, rclk = -1;
+	char buf_s[10], clk_s[10], cmd_s[10], dat_s[10], rclk_s[10];
+
+    if (!host || !host->pdata || !host->pdata->pin_data)
+        return 0;
+
+	sprintf(buf, "[%s : %s]\n", host->pdev->name, host->mmc ? mmc_hostname(host->mmc) : "UnKnown");
+
+/* SDC3 Port must change the settings via GPIO */
+    if (host->pdata->pin_data->is_gpio) {
+		struct sdhci_msm_gpio_data *gpio_curr;
+		uint32_t bits;
+		int gpio_pull = -1;
+
+		gpio_curr = host->pdata->pin_data->gpio_data;
+		for (i = 0; i < gpio_curr->size; i++) {
+			if (gpio_is_valid(gpio_curr->gpio[i].no)) {
+				/* #define MSM_TLMM_BASE		IOMEM(0xFA017000)	*/
+				bits = readl_relaxed(IOMEM(0xFA017000) + 0x1000 + (0x10 * gpio_curr->gpio[i].no));
+				gpio_pull = bits & 0x3;
+
+				if (gpio_pull == 0)
+					strcpy(buf_s, "NO PULL\0");
+				else if (gpio_pull == 1)
+					strcpy(buf_s, "PULL DOWN\0");
+				else if (gpio_pull == 2)
+					strcpy(buf_s, "PULL KEEP\0");
+				else if (gpio_pull == 3)
+					strcpy(buf_s, "PULL UP\0");
+
+				sprintf(buf, "%sGPIO[%u] : %s (%d)\n",
+					buf, gpio_curr->gpio[i].no, buf_s, gpio_pull);
+            }
+        }
+        return simple_read_from_buffer(ubuf, cnt, ppos, buf, 512);
+    }
+
+    curr = host->pdata->pin_data->pad_data;
+    for (i = 0; i < curr->pull->size; i++) {
+		if (curr->pull->on[i].val == 0)
+			strcpy(buf_s, "NO PULL\0");
+		else if (curr->pull->on[i].val == 1)
+			strcpy(buf_s, "PULL DOWN\0");
+		else if (curr->pull->on[i].val == 2)
+			strcpy(buf_s, "PULL KEEP\0");
+		else if (curr->pull->on[i].val == 3)
+			strcpy(buf_s, "PULL UP\0");
+
+        switch (curr->pull->on[i].no) {
+            case TLMM_PULL_SDC1_CLK:
+            case TLMM_PULL_SDC2_CLK:
+            case TLMM_PULL_SDC3_CLK:
+            case TLMM_PULL_SDC4_CLK:
+                clk = curr->pull->on[i].val;
+				strcpy(clk_s, buf_s);
+                break;
+            case TLMM_PULL_SDC1_CMD:
+            case TLMM_PULL_SDC2_CMD:
+            case TLMM_PULL_SDC3_CMD:
+            case TLMM_PULL_SDC4_CMD:
+                cmd = curr->pull->on[i].val;
+				strcpy(cmd_s, buf_s);
+                break;
+            case TLMM_PULL_SDC1_DATA:
+            case TLMM_PULL_SDC2_DATA:
+            case TLMM_PULL_SDC3_DATA:
+            case TLMM_PULL_SDC4_DATA:
+                dat = curr->pull->on[i].val;
+				strcpy(dat_s, buf_s);
+                break;
+			case TLMM_PULL_SDC1_RCLK:
+                rclk = curr->pull->on[i].val;
+				strcpy(rclk_s, buf_s);
+                break;
+            default:
+                continue;
+        }
+    }
+
+	if (rclk < 0)
+		sprintf(buf, "%sCLOCK : %s (%d)\nCMD   : %s (%d)\nDATA  : %s (%d)\n",
+			buf, clk_s, clk, cmd_s, cmd, dat_s, dat);
+	else
+		sprintf(buf, "%sCLOCK : %s (%d)\nCMD   : %s (%d)\nDATA  : %s (%d)\nR_CLK : %s (%d)\n",
+			buf, clk_s, clk, cmd_s, cmd, dat_s, dat, rclk_s, rclk);
+
+    return simple_read_from_buffer(ubuf, cnt, ppos, buf, 512);
+}
+
+static int sdhci_msm_pull_reg_write(struct file *filp,
+        const char __user *ubuf, size_t cnt,
+        loff_t *ppos)
+{
+    struct sdhci_msm_host *host = filp->private_data;
+    struct sdhci_msm_pad_data *curr;
+    int i;
+    int clk, cmd, dat, rclk, value;
+	int gpio_buf[6];
+
+    if (!host || !host->pdata || !host->pdata->pin_data)
+        return 0;
+
+/* SDC3 Port must change the settings via GPIO */
+    if (host->pdata->pin_data->is_gpio) {
+		struct sdhci_msm_gpio_data *gpio_curr;
+		uint32_t bits;
+
+		if (sscanf(ubuf, "%d %d %d %d %d %d",
+			&gpio_buf[0], &gpio_buf[1], &gpio_buf[2], &gpio_buf[3], &gpio_buf[4], &gpio_buf[5]) != 6)
+			return 0;
+
+		gpio_curr = host->pdata->pin_data->gpio_data;
+		for (i = 0; i < gpio_curr->size; i++) {
+            if (gpio_is_valid(gpio_curr->gpio[i].no)) {
+				/* #define MSM_TLMM_BASE		IOMEM(0xFA017000)	*/
+				bits = readl_relaxed(IOMEM(0xFA017000) + 0x1000 + (0x10 * gpio_curr->gpio[i].no));
+				bits &= 0xFFFFFFFC;
+				bits |= gpio_buf[i];
+				writel_relaxed(bits, IOMEM(0xFA017000) + 0x1000 + (0x10 * gpio_curr->gpio[i].no));
+            }
+        }
+		return cnt;
+	}
+
+	curr = host->pdata->pin_data->pad_data;
+
+	switch (curr->pull->size) {
+		case 3:
+		    if (sscanf(ubuf, "%d %d %d", &clk, &cmd, &dat) != 3)
+				return 0;
+			break;
+		case 4:
+		    if (sscanf(ubuf, "%d %d %d %d", &clk, &cmd, &dat, &rclk) != 4)
+				return 0;
+			break;
+		default:
+			return 0;
+	}
+
+    for (i = 0; i < curr->pull->size; i++) {
+        switch (curr->pull->on[i].no) {
+            case TLMM_PULL_SDC1_CLK:
+            case TLMM_PULL_SDC2_CLK:
+            case TLMM_PULL_SDC3_CLK:
+            case TLMM_PULL_SDC4_CLK:
+                value = clk;
+                if (value == -1)
+                    continue;
+                curr->pull->on[i].val = value;
+                break;
+            case TLMM_PULL_SDC1_CMD:
+            case TLMM_PULL_SDC2_CMD:
+            case TLMM_PULL_SDC3_CMD:
+            case TLMM_PULL_SDC4_CMD:
+                value = cmd;
+                if (value == -1)
+                    continue;
+                curr->pull->on[i].val = value;
+                break;
+            case TLMM_PULL_SDC1_DATA:
+            case TLMM_PULL_SDC2_DATA:
+            case TLMM_PULL_SDC3_DATA:
+            case TLMM_PULL_SDC4_DATA:
+                value = dat;
+                if (value == -1)
+                    continue;
+                curr->pull->on[i].val = value;
+                break;
+			case TLMM_PULL_SDC1_RCLK:
+				value = rclk;
+                if (value == -1)
+                    continue;
+                curr->pull->on[i].val = value;
+                break;
+            default:
+                continue;
+        }
+        msm_tlmm_set_hdrive(curr->pull->on[i].no,
+                curr->pull->on[i].val);
+    }
+    return cnt;
+}
+
+static const struct file_operations sdhci_msm_pull_reg_fops = {
+    .open = sdhci_msm_pull_reg_open,
+    .read = sdhci_msm_pull_reg_read,
+    .write = sdhci_msm_pull_reg_write,
+};
+
+static void sdhci_msm_pull_reg_create(struct sdhci_msm_host *host)
+{
+    struct mmc_host *mmc = host->mmc;
+
+    if (!mmc || ! mmc->debugfs_root)
+        return;
+
+	if (!debugfs_create_file("pull_reg",
+	        S_IROTH | S_IWOTH | S_IRGRP | S_IWGRP | S_IRUSR | S_IWUSR,
+			mmc->debugfs_root, host, &sdhci_msm_pull_reg_fops))
+		pr_err("%s: Cannot make debugfs for pull_reg.\n", mmc_hostname(host->mmc));
+}
+#endif /* CONFIG_SAMSUNG_SDMMC_ENG_TEST */
 
 static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 {
@@ -3129,7 +3584,7 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 	 * max. 1ms for reset completion.
 	 */
 	ret = readl_poll_timeout(msm_host->core_mem + CORE_POWER,
-			pwr, !(pwr & CORE_SW_RST), 100, 10);
+			pwr, !(pwr & CORE_SW_RST), 10, 1000);
 
 	if (ret) {
 		dev_err(&pdev->dev, "reset failed (%d)\n", ret);
@@ -3172,7 +3627,6 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 	host->quirks |= SDHCI_QUIRK_SINGLE_POWER_WRITE;
 	host->quirks |= SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN;
 	host->quirks2 |= SDHCI_QUIRK2_ALWAYS_USE_BASE_CLOCK;
-	host->quirks2 |= SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING;
 	host->quirks2 |= SDHCI_QUIRK2_USE_MAX_DISCARD_SIZE;
 	host->quirks2 |= SDHCI_QUIRK2_IGNORE_DATATOUT_FOR_R1BCMD;
 	host->quirks2 |= SDHCI_QUIRK2_BROKEN_PRESET_VALUE;
@@ -3304,7 +3758,7 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 	/* SYSFS about SD Card Detection by soonil.lim */
 #if defined(CONFIG_MACH_SERRANO)
 	if (t_flash_detect_dev == NULL && !strcmp(host->hw_name, "msm_sdcc.3")) {
-#elif defined(CONFIG_SEC_ATLANTIC_PROJECT)
+#elif defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_MACH_JSGLTE_CHN_CMCC) || defined(CONFIG_MACH_A5LTE_JPN_KDI) 
 	if (t_flash_detect_dev == NULL && !strcmp(host->hw_name, "msm_sdcc.2")) {
 #else
 	if (t_flash_detect_dev == NULL && gpio_is_valid(msm_host->pdata->status_gpio)) {
@@ -3394,7 +3848,11 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 			msm_host->pdata->mpm_sdiowakeup_int = -1;
 		}
 	}
-
+#if defined(CONFIG_SAMSUNG_SDMMC_ENG_TEST)
+	/* DebugFS for Pin Setting */
+	sdhci_msm_drv_str_create(msm_host);
+	sdhci_msm_pull_reg_create(msm_host);
+#endif
 	/* Successful initialization */
 	goto out;
 

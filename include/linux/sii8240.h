@@ -104,6 +104,8 @@ struct sii8240_platform_data {
 #endif
 #ifdef CONFIG_EXTCON
 	bool is_smartdock;
+	struct delayed_work		bootup_work;
+	bool	bootup_complete;
 #endif
 };
 extern int system_rev;

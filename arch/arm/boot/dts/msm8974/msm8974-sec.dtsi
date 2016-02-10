@@ -973,6 +973,8 @@
 		interrupt-names = "qup_err_intr";
 		qcom,i2c-bus-freq = <400000>;
 		qcom,i2c-src-freq = <50000000>;
+		qcom,scl-gpio = <&msmgpio 30 0>;
+		qcom,sda-gpio = <&msmgpio 29 0>;
 		qcom,master-id = <86>;
 		status = "disabled";
 	};
@@ -1012,6 +1014,8 @@
 		interrupt-names = "qup_err_intr";
 		qcom,i2c-bus-freq = <100000>;
 		qcom,i2c-src-freq = <50000000>;
+		qcom,scl-gpio = <&msmgpio 52 0>;
+		qcom,sda-gpio = <&msmgpio 51 0>;
 		qcom,master-id = <84>;
 	};
 
@@ -1685,7 +1689,9 @@
 		compatible = "qcom,cpubw";
 		qcom,cpu-mem-ports = <1 512>, <2 512>;
 		qcom,bw-tbl =
+			<  381 /*  50 MHz */ >,
 			<  572 /*  75 MHz */ >,
+			<  762 /* 100 MHz */ >,
 			< 1144 /* 150 MHz */ >,
 			< 1525 /* 200 MHz */ >,
 			< 2342 /* 307 MHz */ >,
@@ -1992,6 +1998,11 @@
 			compatible = "qcom,msm-dai-q6-dev";
 			qcom,msm-dai-q6-dev-id = <32773>;
 		};
+
+		qcom,msm-dai-q6-incall-music-2-rx {
+			compatible = "qcom,msm-dai-q6-dev";
+			qcom,msm-dai-q6-dev-id = <32770>;
+		};
 	};
 
 	qcom,msm-pri-auxpcm {
@@ -2183,7 +2194,7 @@
 		qcom,disk-encrypt-pipe-pair = <2>;
 		qcom,hlos-ce-hw-instance = <1>;
 		qcom,qsee-ce-hw-instance = <0>;
-		qcom,support-bus-scaling = <1>;
+		qcom,support-bus-scaling;
 		qcom,msm-bus,name = "qseecom-noc";
 		qcom,msm-bus,num-cases = <4>;
 		qcom,msm-bus,num-paths = <1>;
@@ -2304,9 +2315,13 @@
 		interrupts = <0 236 0>;
 		qcom,bam-pipe-pair = <2>;
 		qcom,ce-hw-instance = <1>;
+		qcom,clk-mgmt-sus-res;
                 qcom,msm-bus,name = "qcrypto-noc";
 		qcom,msm-bus,num-cases = <2>;
 		qcom,msm-bus,num-paths = <1>;
+                qcom,use-sw-aes-cbc-ecb-ctr-algo;
+                qcom,use-sw-aes-xts-algo;
+                qcom,use-sw-ahash-algo;
 		qcom,msm-bus,vectors-KBps =
 				<56 512 0 0>,
 				<56 512 3936000 393600>;

@@ -478,7 +478,7 @@ struct input_keymap_entry {
 #define KEY_DUMMY_MENU		251	/* Dummy Touchkey : MENU*/
 #define KEY_ACTIVITY_MENU	252	/* Activity menu key*/
 #define KEY_DUMMY_BACK		253	/* Dummy Touchkey : BACK*/
-#define KEY_RECENT	254	/* Key recent */
+#define KEY_RECENT		254	/* Key recent */
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -899,10 +899,10 @@ struct input_keymap_entry {
 #define SW_RIGHT_HAND	0x18	/* set = right hand*/
 #define SW_BOTH_HAND	0x19	/* set = both hand*/
 #define SW_W1			0x1A  /* set = w1_slave */
+#define SW_BATT_COVER		0x1C	/* for battery cover detect */
 
 #define SW_MAX			0x20
 #define SW_CNT			(SW_MAX+1)
-
 /*
  * Misc events
  */

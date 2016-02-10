@@ -28,15 +28,7 @@
 #define CYTTSP5_AUTO_LOAD_FOR_CORRUPTED_FW 1
 #define CYTTSP5_LOADER_FW_UPGRADE_RETRY_COUNT 3
 
-#ifdef CONFIG_SEC_PATEK_PROJECT
-/* PATEK doesn't support FW update */
-#undef CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_PLATFORM_FW_UPGRADE
-#undef CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_BINARY_FW_UPGRADE
-#undef CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_PLATFORM_TTCONFIG_UPGRADE
-#undef CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_MANUAL_TTCONFIG_UPGRADE
-#else
 #define UPGRADE_FW_IN_PROBE
-#endif
 
 /*#ifdef CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_PLATFORM_FW_UPGRADE
 #error CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5_PLATFORM_FW_UPGRADE defined
@@ -195,7 +187,6 @@ static int cyttsp5_ldr_enter_(struct device *dev, struct cyttsp5_dev_id *dev_id)
 	dev_id->bl_ver = 0;
 
 	cmd->request_reset(dev);
-	msleep(CY_LDR_SWITCH_TO_APP_MODE_TIMEOUT);
 
 	rc = cmd->request_get_mode(dev, 0, &mode);
 	if (rc < 0)
@@ -204,7 +195,11 @@ static int cyttsp5_ldr_enter_(struct device *dev, struct cyttsp5_dev_id *dev_id)
 	if (mode == CY_MODE_UNKNOWN)
 		return -EINVAL;
 
+	if (mode == CY_MODE_BOOTLOADER)
+		dev_info(dev, "%s: Bootloader mode\n", __func__);
+	else
 	if (mode == CY_MODE_OPERATIONAL) {
+		dev_info(dev, "%s: Operational mode\n", __func__);
 		rc = cmd->cmd->start_bl(dev, 0);
 		if (rc < 0)
 			return rc;
@@ -332,7 +327,7 @@ static int cyttsp5_load_app_(struct device *dev, const u8 *fw, int fw_size)
 			__func__, rc);
 		goto _cyttsp5_load_app_exit;
 	}
-	dev_vdbg(dev, "%s: dev: silicon id=%08X rev=%02X bl=%08X\n",
+	dev_dbg(dev, "%s: dev: silicon id=%08X rev=%02X bl=%08X\n",
 		__func__, dev_id->silicon_id,
 		dev_id->rev_id, dev_id->bl_ver);
 

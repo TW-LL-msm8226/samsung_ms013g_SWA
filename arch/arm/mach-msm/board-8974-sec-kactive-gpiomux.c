@@ -17,6 +17,9 @@
 #include <mach/gpio.h>
 #include <mach/gpiomux.h>
 #include <mach/socinfo.h>
+#ifdef CONFIG_SEC_NFC_SENN3AB
+#include <mach/kactive_felica_gpio.h>
+#endif /* CONFIG_SEC_NFC_SENN3AB */
 
 #if defined(CONFIG_KS8851) || defined(CONFIG_KS8851_MODULE)
 #define KS8851_IRQ_GPIO 94
@@ -60,21 +63,29 @@ static struct gpiomux_setting gpio_suspend_config[] = {
 
 static struct msm_gpiomux_config gpio_nc_configs[] __initdata = {
 	GPIOMUX_SET_NC(18),
+#if !defined(CONFIG_MACH_KACTIVELTE_DCM)
 	GPIOMUX_SET_NC(23),
 	GPIOMUX_SET_NC(24),
 	GPIOMUX_SET_NC(25),
 	GPIOMUX_SET_NC(26),
+#endif
 	GPIOMUX_SET_NC(41),
+#if !defined(CONFIG_MACH_KACTIVELTE_DCM)
 	GPIOMUX_SET_NC(42),
 	GPIOMUX_SET_NC(49),
 	GPIOMUX_SET_NC(50),
 	GPIOMUX_SET_NC(51),
 	GPIOMUX_SET_NC(52),
+#endif
 	GPIOMUX_SET_NC(57),
+#if !defined(CONFIG_MACH_KACTIVELTE_DCM)
 	GPIOMUX_SET_NC(63),
+#endif
 	GPIOMUX_SET_NC(64),
 	GPIOMUX_SET_NC(69),
+#if !defined(CONFIG_MACH_KACTIVELTE_DCM)
 	GPIOMUX_SET_NC(73),
+#endif
 	GPIOMUX_SET_NC(105),
 	GPIOMUX_SET_NC(111),
 	GPIOMUX_SET_NC(112),
@@ -321,7 +332,8 @@ static struct gpiomux_setting blsp7_i2c_config = {
 	.pull = GPIOMUX_PULL_DOWN,
 };
 
-#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) || defined(CONFIG_GSM_MODEM_SPRD6500)
+#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) || defined(CONFIG_GSM_MODEM_SPRD6500) ||\
+	defined(CONFIG_ISDBT_FC8300_SPI) || defined(CONFIG_ISDBT_FC8150_SPI)
 static struct gpiomux_setting gpio_spi9_config = {
 	.func = GPIOMUX_FUNC_2,
 	.drv = GPIOMUX_DRV_8MA,
@@ -441,7 +453,7 @@ static struct msm_gpiomux_config hap_lvl_shft_config[] __initdata = {
 #endif
 };
 
-#if !defined(CONFIG_TDMB)
+#if !defined(CONFIG_TDMB) && !defined(CONFIG_ISDBT_FC8300_SPI) && !defined(CONFIG_ISDBT_FC8150_SPI)
 static struct gpiomux_setting hsic_sus_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
@@ -681,6 +693,23 @@ static struct msm_gpiomux_config msm_epm_configs[] __initdata = {
 };
 
 static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
+#if defined(CONFIG_MACH_KACTIVELTE_DCM)
+        {
+                .gpio      = 2,         /* BLSP1 QUP*/
+                .settings = {
+                        [GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
+			[GPIOMUX_ACTIVE] = &gpio_i2c_config,
+                },
+        },
+        {
+                .gpio      = 3,         /* BLSP1 QUP */
+                .settings = {
+                        [GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
+			[GPIOMUX_ACTIVE] = &gpio_i2c_config,
+                },
+        },
+
+#endif
 #if defined(CONFIG_KS8851) || defined(CONFIG_KS8851_MODULE)
 	{
 		.gpio      = 9,		/* BLSP1 QUP SPI_CS2A_N */
@@ -735,7 +764,8 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_uart_rx_config,
 		},
 	},
-#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) || defined(CONFIG_GSM_MODEM_SPRD6500)
+#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE) || defined(CONFIG_GSM_MODEM_SPRD6500) ||\
+	defined(CONFIG_ISDBT_FC8300_SPI) || defined(CONFIG_ISDBT_FC8150_SPI)
 	{
 		.gpio	   = 49,	/* BLSP2 QUP3 SPI_DATA_MOSI */
 		.settings = {
@@ -908,7 +938,7 @@ static struct msm_gpiomux_config es705_config[] __initdata = {
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &es705_intrevent_config,
 		},
-	},	
+	},
 	{
 		.gpio	= 79,		/* es705 intr event */
 		.settings = {
@@ -1394,6 +1424,36 @@ static struct gpiomux_setting ssp_setting[] = {
 };
 
 static struct msm_gpiomux_config ssp_configs[] __initdata = {
+#if defined(CONFIG_MACH_KACTIVELTE_DCM)
+	{
+		.gpio = 304,
+		.settings = {
+			[GPIOMUX_ACTIVE] = &ssp_setting[1],
+			[GPIOMUX_SUSPENDED] = &ssp_setting[1],
+		},
+	},
+	{
+		.gpio = 74,
+		.settings = {
+			[GPIOMUX_ACTIVE] = &ssp_setting[1],
+			[GPIOMUX_SUSPENDED] = &ssp_setting[1],
+		},
+	},
+	{
+		.gpio = 73,
+		.settings = {
+			[GPIOMUX_ACTIVE] = &ssp_setting[1],
+			[GPIOMUX_SUSPENDED] = &ssp_setting[1],
+		},
+	},
+	{
+		.gpio = 89,
+		.settings = {
+			[GPIOMUX_ACTIVE] = &ssp_setting[2],
+			[GPIOMUX_SUSPENDED] = &ssp_setting[2],
+		},
+	},
+#else
 	{
 		.gpio = 9,
 		.settings = {
@@ -1422,6 +1482,7 @@ static struct msm_gpiomux_config ssp_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &ssp_setting[2],
 		},
 	},
+#endif
 };
 #endif
 
@@ -1907,6 +1968,131 @@ static struct msm_gpiomux_config msm8974_fingerprint_configs[] __initdata = {
 };
 #endif
 
+#ifdef CONFIG_SEC_NFC_SENN3AB
+static struct gpiomux_setting senn3ab_i2c_active_setting = {
+	.func = GPIOMUX_FUNC_3,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting senn3ab_i2c_suspend_setting = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+
+static struct gpiomux_setting senn3ab_uart_tx_setting = {
+	.func = GPIOMUX_FUNC_3,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting senn3ab_uart_rx_setting = {
+	.func = GPIOMUX_FUNC_3,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting senn3ab_uart_cts_setting = {
+	.func = GPIOMUX_FUNC_3,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting senn3ab_uart_rfr_setting = {
+	.func = GPIOMUX_FUNC_4,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting senn3ab_ven_setting = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting senn3ab_firm_setting = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting senn3ab_push_setting = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct msm_gpiomux_config msm8974pro_senn3ab_configs[] __initdata = {
+	{
+		.gpio = GPIO_SENN3AB_VEN,/*VEN*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_ven_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_ven_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_FIRM,/*FIRM*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_firm_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_firm_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_PUSH,/*PUSH*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_push_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_push_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_I2C_SDA,/*I2C_SDA*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_i2c_active_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_i2c_suspend_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_I2C_SCL,/*I2C_SCL*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_i2c_active_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_i2c_suspend_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_UART_TX,/*4-pin UART_TX*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_uart_tx_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_uart_tx_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_UART_RX,/*4-pin UART_RX*/
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_uart_rx_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_uart_rx_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_UART_CTS,/* 4-pin UART_CTS */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_uart_cts_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_uart_cts_setting,
+		},
+	},
+	{
+		.gpio = GPIO_SENN3AB_UART_RFR,/* 4-pin UART_RFR */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &senn3ab_uart_rfr_setting,
+			[GPIOMUX_SUSPENDED] = &senn3ab_uart_rfr_setting,
+		},
+	},
+
+};
+#endif /* CONFIG_SEC_NFC_SENN3AB */
 static struct gpiomux_setting gpio_oledid_sleep_config = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
@@ -2000,7 +2186,7 @@ void __init msm_8974_init_gpiomux(void)
 	if (!(of_board_is_dragonboard() && machine_is_apq8074()))
 		msm_gpiomux_sdc4_install();
 
-#if !defined(CONFIG_TDMB)
+#if !defined(CONFIG_TDMB) && !defined(CONFIG_ISDBT_FC8300_SPI) && !defined(CONFIG_ISDBT_FC8150_SPI)
 	msm_gpiomux_install(msm_hsic_hub_configs,
 				ARRAY_SIZE(msm_hsic_hub_configs));
 #endif
@@ -2076,6 +2262,10 @@ void __init msm_8974_init_gpiomux(void)
 	msm_gpiomux_install(msm_af_configs_rev04,
 			ARRAY_SIZE(msm_af_configs_rev04));
 
+#ifdef CONFIG_SEC_NFC_SENN3AB
+	/* GPIO configuration(s) for the SENN3AB NFC Chip */
+	msm_gpiomux_install(msm8974pro_senn3ab_configs, ARRAY_SIZE(msm8974pro_senn3ab_configs));
+#endif
 	msm_gpiomux_install(hw_rev_configs, ARRAY_SIZE(hw_rev_configs));
 	msm_gpiomux_install(gpio_nc_configs, ARRAY_SIZE(gpio_nc_configs));
 

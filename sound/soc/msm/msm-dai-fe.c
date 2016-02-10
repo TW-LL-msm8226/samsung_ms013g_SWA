@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,7 +25,7 @@ static struct snd_soc_dai_ops msm_fe_dai_ops = {};
 /* Conventional and unconventional sample rate supported */
 static unsigned int supported_sample_rates[] = {
 	8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000,
-	96000, 192000
+	88200, 96000, 176400, 192000
 };
 
 static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
@@ -37,11 +37,10 @@ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
 static int multimedia_startup(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *dai)
 {
-	snd_pcm_hw_constraint_list(substream->runtime, 0,
+	return snd_pcm_hw_constraint_list(substream->runtime, 0,
 		SNDRV_PCM_HW_PARAM_RATE,
 		&constraints_sample_rates);
 
-	return 0;
 }
 
 static struct snd_soc_dai_ops msm_fe_Multimedia_dai_ops = {

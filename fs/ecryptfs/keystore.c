@@ -1752,16 +1752,38 @@ decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 #ifdef CONFIG_CRYPTO_FIPS
 	if (crypt_stat->mount_crypt_stat->flags & ECRYPTFS_ENABLE_CC)
 		crypto_blkcipher_set_iv(desc.tfm, iv, ECRYPTFS_DEFAULT_IV_BYTES);
-#endif
+	if (unlikely(rc)) {
+		mutex_unlock(tfm_mutex);
+		printk(KERN_ERR "Error decrypting; rc = [%d]\n", rc);
+		goto out;
+	}
+	/* Session key(the key to decrypt file encryption keys) CLEAR! */
+	memset(auth_tok->token.password.session_key_encryption_key, 0, ECRYPTFS_MAX_KEY_BYTES);
+	rc = crypto_blkcipher_setkey(desc.tfm, auth_tok->token.password.session_key_encryption_key, crypt_stat->key_size);
+	mutex_unlock(tfm_mutex);
+	if (unlikely(rc < 0)) {
+		printk(KERN_ERR "Error(decrypt) Session Key CLEAR in desc.tfm; rc = [%d]\n", rc);
+	}
+	rc = 0;
+#else
 	mutex_unlock(tfm_mutex);
 	if (unlikely(rc)) {
 		printk(KERN_ERR "Error decrypting; rc = [%d]\n", rc);
 		goto out;
 	}
+#endif
 	auth_tok->session_key.flags |= ECRYPTFS_CONTAINS_DECRYPTED_KEY;
 	memcpy(crypt_stat->key, auth_tok->session_key.decrypted_key,
 	       auth_tok->session_key.decrypted_key_size);
 	crypt_stat->flags |= ECRYPTFS_KEY_VALID;
+
+#ifdef CONFIG_CRYPTO_FIPS
+	/* File encryption key CLEAR! */
+	memset(auth_tok->session_key.decrypted_key, 0, auth_tok->session_key.decrypted_key_size);
+	auth_tok->session_key.decrypted_key_size = 0;
+	auth_tok->session_key.flags &= ~ECRYPTFS_CONTAINS_DECRYPTED_KEY;
+#endif
+
 	if (unlikely(ecryptfs_verbosity > 0)) {
 		ecryptfs_printk(KERN_DEBUG, "FEK of size [%zd]:\n",
 				crypt_stat->key_size);
@@ -2344,12 +2366,26 @@ write_tag_3_packet(char *dest, size_t *remaining_bytes,
 #ifdef CONFIG_CRYPTO_FIPS
 	if (crypt_stat->mount_crypt_stat->flags & ECRYPTFS_ENABLE_CC)
 		crypto_blkcipher_set_iv(desc.tfm, iv, ECRYPTFS_DEFAULT_IV_BYTES);
-#endif
+	if (rc) {
+		mutex_unlock(tfm_mutex);
+		printk(KERN_ERR "Error encrypting; rc = [%d]\n", rc);
+		goto out;
+	}
+	/* Session key(the key to encrypt file encryption keys) CLEAR! */
+	memset( session_key_encryption_key, 0, ECRYPTFS_MAX_KEY_BYTES );
+	rc = crypto_blkcipher_setkey(desc.tfm, session_key_encryption_key, crypt_stat->key_size);
+	mutex_unlock(tfm_mutex);
+	if (rc) {
+		printk(KERN_ERR "Error(encrypt) Session Key CLEAR in desc.tfm; rc = [%d]\n", rc);
+	}
+	rc = 0;
+#else
 	mutex_unlock(tfm_mutex);
 	if (rc) {
 		printk(KERN_ERR "Error encrypting; rc = [%d]\n", rc);
 		goto out;
 	}
+#endif
 	ecryptfs_printk(KERN_DEBUG, "This should be the encrypted key:\n");
 	if (ecryptfs_verbosity > 0) {
 		ecryptfs_printk(KERN_DEBUG, "EFEK of size [%zd]:\n",

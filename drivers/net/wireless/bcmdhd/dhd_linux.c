@@ -713,6 +713,7 @@ static int dhd_sleep_pm_callback(struct notifier_block *nfb, unsigned long actio
 		break;
 	}
 
+#if defined(SUPPORT_P2P_GO_PS)
 #ifdef PROP_TXSTATUS
 	if (suspend) {
 		dhd_wakelock_waive(dhdinfo);
@@ -722,6 +723,7 @@ static int dhd_sleep_pm_callback(struct notifier_block *nfb, unsigned long actio
 		dhd_wlfc_resume(&dhdinfo->pub);
 	}
 #endif
+#endif /* SUPPORT_P2P_GO_PS */
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && (LINUX_VERSION_CODE <= \
 	KERNEL_VERSION(2, 6, 39))
@@ -2365,6 +2367,7 @@ dhd_get_stats(struct net_device *net)
 	ifidx = dhd_net2idx(dhd, net);
 	if (ifidx == DHD_BAD_IF) {
 		DHD_ERROR(("%s: BAD_IF\n", __FUNCTION__));
+		memset(&net->stats, 0, sizeof(net->stats));
 		return NULL;
 	}
 
@@ -2375,17 +2378,6 @@ dhd_get_stats(struct net_device *net)
 		/* Use the protocol to get dongle stats */
 		dhd_prot_dstats(&dhd->pub);
 	}
-
-	/* Copy dongle stats to net device stats */
-	ifp->stats.rx_packets = dhd->pub.dstats.rx_packets;
-	ifp->stats.tx_packets = dhd->pub.dstats.tx_packets;
-	ifp->stats.rx_bytes = dhd->pub.dstats.rx_bytes;
-	ifp->stats.tx_bytes = dhd->pub.dstats.tx_bytes;
-	ifp->stats.rx_errors = dhd->pub.dstats.rx_errors;
-	ifp->stats.tx_errors = dhd->pub.dstats.tx_errors;
-	ifp->stats.rx_dropped = dhd->pub.dstats.rx_dropped;
-	ifp->stats.tx_dropped = dhd->pub.dstats.tx_dropped;
-	ifp->stats.multicast = dhd->pub.dstats.multicast;
 
 	return &ifp->stats;
 }

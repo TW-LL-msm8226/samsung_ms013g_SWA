@@ -669,6 +669,7 @@ static int _cyttsp4_load_app(struct device *dev, const u8 *fw, int fw_size)
 	}
 
 	dev_info(dev, "%s: Send BL Loader Enter\n", __func__);
+	msleep(20);
 
 	retval = _cyttsp4_ldr_enter(dev, dev_id);
 	if (retval < 0) {

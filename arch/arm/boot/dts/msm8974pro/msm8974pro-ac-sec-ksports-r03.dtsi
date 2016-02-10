@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-/include/ "msm8974pro-sii8240_mhl-k-r02.dtsi"
+/include/ "msm8974pro-sii8240_mhl-ksports-r00.dtsi"
 /include/ "msm8974pro-camera-sensor-kactive-r00.dtsi"
 
 / {

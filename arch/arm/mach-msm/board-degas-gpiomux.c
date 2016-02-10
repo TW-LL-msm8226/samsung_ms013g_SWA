@@ -172,12 +172,14 @@ static struct gpiomux_setting accel_irq_config = {
 	.dir = GPIOMUX_IN,
 };
 
+#if !defined(CONFIG_MACH_DEGASLTE_SBM)
 static struct gpiomux_setting irled_gpio_i2c_config = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
 	.pull = GPIOMUX_PULL_NONE,
 	.dir = GPIOMUX_IN,
 };
+#endif
 
 static struct gpiomux_setting grip_irq_config = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -384,7 +386,7 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 };
 
 #if defined (CONFIG_SEC_DEGASLTE_COMMON)
-
+#if !defined(CONFIG_MACH_DEGASLTE_SBM)
 static struct msm_gpiomux_config irled_i2c_scl_config[] __initdata = {
 	{
 		.gpio      = 4,
@@ -401,6 +403,7 @@ static struct msm_gpiomux_config irled_i2c_scl_config[] __initdata = {
 		},
 	},
 };
+#endif
 #endif
 
 
@@ -458,6 +461,7 @@ static struct gpiomux_setting goodix_reset_sus_cfg = {
 };
 
 static struct msm_gpiomux_config msm_skuf_blsp_configs[] __initdata = {
+#if !defined(CONFIG_MACH_DEGASLTE_SBM)
 	{
 		.gpio      = 2,		/* NC */
 		.settings = {
@@ -476,6 +480,7 @@ static struct msm_gpiomux_config msm_skuf_blsp_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_nc_cfg,
 		},
 	},
+#endif
 	{
 		.gpio      = 14,	/* NC */
 		.settings = {
@@ -522,6 +527,7 @@ static struct msm_gpiomux_config msm_skuf_goodix_configs[] __initdata = {
 	},
 };
 
+#if !defined(CONFIG_MACH_DEGASLTE_SBM)
 static struct gpiomux_setting nfc_wake_act_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_6MA,
@@ -544,6 +550,7 @@ static struct msm_gpiomux_config msm_skuf_nfc_configs[] __initdata = {
 		},
 	},
 };
+#endif
 
 static struct gpiomux_setting sd_card_det_active_config = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -1071,10 +1078,47 @@ static void msm_gpiomux_sdc3_install(void) {}
 
 extern int system_rev;
 
-#if defined (CONFIG_MACH_DEGASLTE_SPR)
+#if defined(CONFIG_MACH_DEGASLTE_SBM)
+static struct gpiomux_setting nc_suspend_in_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_IN,
+};
+
+static struct gpiomux_setting nc_suspend_out_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+
+static struct msm_gpiomux_config degaslte_sbm_gpios[] __initdata = {
+	{
+		.gpio      = 11,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &nc_suspend_in_cfg,
+		},
+	},
+	{
+		.gpio      = 105,
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &nc_suspend_out_cfg,
+		},
+	},
+
+};
+#endif
+
+#if defined(CONFIG_MACH_DEGASLTE_SPR) || defined(CONFIG_MACH_DEGASLTE_VZW) || defined(CONFIG_MACH_DEGASLTE_SBM)
 static struct msm_gpiomux_config degaslte_spr_nc_gpios[] __initdata = {
 	NC_GPIO_CONFIG(2),
 	NC_GPIO_CONFIG(3),
+#if defined(CONFIG_MACH_DEGASLTE_SBM)
+	NC_GPIO_CONFIG(4),
+	NC_GPIO_CONFIG(5),
+#endif
 	NC_GPIO_CONFIG(20),
 	NC_GPIO_CONFIG(21),
 	NC_GPIO_CONFIG(22),
@@ -1085,6 +1129,9 @@ static struct msm_gpiomux_config degaslte_spr_nc_gpios[] __initdata = {
 	NC_GPIO_CONFIG(51),
 	NC_GPIO_CONFIG(52),
 	NC_GPIO_CONFIG(56),
+#if defined(CONFIG_MACH_DEGASLTE_SBM)
+	NC_GPIO_CONFIG(62),
+#endif
 	NC_GPIO_CONFIG(73),
 	NC_GPIO_CONFIG(74),
 	NC_GPIO_CONFIG(83),
@@ -1101,6 +1148,9 @@ static struct msm_gpiomux_config degaslte_spr_nc_gpios[] __initdata = {
 	NC_GPIO_CONFIG(103),
 	NC_GPIO_CONFIG(104),
 	NC_GPIO_CONFIG(114),
+#if defined(CONFIG_MACH_DEGASLTE_SBM)
+	NC_GPIO_CONFIG(120),
+#endif
 };
 
 static struct gpiomux_setting gpio_10_sda_config = {
@@ -1155,10 +1205,11 @@ void __init msm8226_init_gpiomux(void)
 	else
 		msm_gpiomux_install(msm_melfas_configs,
 				ARRAY_SIZE(msm_melfas_configs));
+#if !defined(CONFIG_MACH_DEGASLTE_SBM)
 	if (of_board_is_skuf())
 		msm_gpiomux_install(msm_skuf_nfc_configs,
 				ARRAY_SIZE(msm_skuf_nfc_configs));
-
+#endif
 	msm_gpiomux_install_nowrite(msm_lcd_configs,
 			ARRAY_SIZE(msm_lcd_configs));
 
@@ -1174,7 +1225,9 @@ void __init msm8226_init_gpiomux(void)
 
 #if defined (CONFIG_SEC_DEGASLTE_COMMON)
 	msm_gpiomux_install(msm_nativesensors_configs,ARRAY_SIZE(msm_nativesensors_configs));
+#if !defined(CONFIG_MACH_DEGASLTE_SBM)
 	msm_gpiomux_install(irled_i2c_scl_config, ARRAY_SIZE(irled_i2c_scl_config));
+#endif
 	msm_gpiomux_install(ovp_enable_configs, ARRAY_SIZE(ovp_enable_configs));
 #endif
 	msm_gpiomux_sdc3_install();
@@ -1192,8 +1245,12 @@ void __init msm8226_init_gpiomux(void)
 	msm_gpiomux_install(msm8226_blsp_codec_configs,ARRAY_SIZE(msm8226_blsp_codec_configs));
 	msm_gpiomux_install(msm8226_amp_int_configs,ARRAY_SIZE(msm8226_amp_int_configs));
 #endif
-#if defined (CONFIG_MACH_DEGASLTE_SPR)
+#if defined (CONFIG_MACH_DEGASLTE_SPR) || defined(CONFIG_MACH_DEGASLTE_VZW) || defined(CONFIG_MACH_DEGASLTE_SBM)
 	msm_gpiomux_install(degaslte_spr_nc_gpios, ARRAY_SIZE(degaslte_spr_nc_gpios));
 	msm_gpiomux_install(degasltespr_gpio_10, ARRAY_SIZE(degasltespr_gpio_10));
+#endif
+
+#if defined(CONFIG_MACH_DEGASLTE_SBM)
+	msm_gpiomux_install(degaslte_sbm_gpios, ARRAY_SIZE(degaslte_sbm_gpios));
 #endif
 }

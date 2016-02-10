@@ -107,8 +107,6 @@
 
 #include "exfat_super.h"
 
-#include <linux/stlog.h>
-
 static struct kmem_cache *exfat_inode_cachep;
 
 static int exfat_default_codepage = DEFAULT_CODEPAGE;
@@ -178,7 +176,7 @@ void exfat_time_fat2unix(struct exfat_sb_info *sbi, struct timespec *ts,
 
 	ts->tv_sec =  tp->Second  + tp->Minute * SECS_PER_MIN
 			+ tp->Hour * SECS_PER_HOUR
-			+ (year * 365 + ld + accum_days_in_year[(tp->Month)] 
+			+ (year * 365 + ld + accum_days_in_year[(tp->Month)]
 			+ (tp->Day - 1) + DAYS_DELTA_DECADE) * SECS_PER_DAY;
 
 	if(!sbi->options.tz_utc)
@@ -319,7 +317,7 @@ static void exfat_mnt_msg(struct super_block *sb, int mount, int prev_err, const
 {
 	exfat_msg(sb, KERN_INFO, "%s %s",
 			msg, prev_err ? "(with previous I/O errors)" : "");
-	ST_LOG("[EXFAT] (%s[%d:%d]):%s %s",sb->s_id, MAJOR(sb->s_dev),MINOR(sb->s_dev), 
+	ST_LOG("[EXFAT] (%s[%d:%d]):%s %s",sb->s_id, MAJOR(sb->s_dev),MINOR(sb->s_dev),
 			msg, prev_err ? "(with previous I/O errors)" : "");
 }
 
@@ -1280,6 +1278,12 @@ const struct inode_operations exfat_dir_inode_operations = {
 	.rename        = exfat_rename,
 	.setattr       = exfat_setattr,
 	.getattr       = exfat_getattr,
+#ifdef CONFIG_EXFAT_VIRTUAL_XATTR
+	.setxattr	= exfat_setxattr,
+	.getxattr	= exfat_getxattr,
+	.listxattr	= exfat_listxattr,
+	.removexattr	= exfat_removexattr,
+#endif
 };
 
 static void *exfat_follow_link(struct dentry *dentry, struct nameidata *nd)
@@ -1292,6 +1296,12 @@ static void *exfat_follow_link(struct dentry *dentry, struct nameidata *nd)
 const struct inode_operations exfat_symlink_inode_operations = {
 	.readlink    = generic_readlink,
 	.follow_link = exfat_follow_link,
+#ifdef CONFIG_EXFAT_VIRTUAL_XATTR
+	.setxattr	= exfat_setxattr,
+	.getxattr	= exfat_getxattr,
+	.listxattr	= exfat_listxattr,
+	.removexattr	= exfat_removexattr,
+#endif
 };
 
 static int exfat_file_release(struct inode *inode, struct file *filp)
@@ -1363,6 +1373,12 @@ const struct inode_operations exfat_file_inode_operations = {
 #endif
 	.setattr     = exfat_setattr,
 	.getattr     = exfat_getattr,
+#ifdef CONFIG_EXFAT_VIRTUAL_XATTR
+	.setxattr	= exfat_setxattr,
+	.getxattr	= exfat_getxattr,
+	.listxattr	= exfat_listxattr,
+	.removexattr	= exfat_removexattr,
+#endif
 };
 
 static int exfat_bmap(struct inode *inode, sector_t sector, sector_t *phys,

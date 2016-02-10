@@ -709,7 +709,7 @@ static struct msm_gpiomux_config msm_skuf_goodix_configs[] __initdata = {
 		},
 	},
 };
-#if !defined (CONFIG_SEC_MILLET_PROJECT) && !defined(CONFIG_SEC_MATISSE_PROJECT) && !defined(CONFIG_MACH_AFYONLTE_TMO) && !defined(CONFIG_MACH_AFYONLTE_CAN)
+#if !defined (CONFIG_SEC_MILLET_PROJECT) && !defined(CONFIG_SEC_MATISSE_PROJECT) && !defined(CONFIG_MACH_AFYONLTE_TMO) && !defined(CONFIG_MACH_AFYONLTE_CAN) && !defined(CONFIG_MACH_AFYONLTE_MTR)
 
 static struct gpiomux_setting nfc_ldo_act_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -750,7 +750,7 @@ static struct gpiomux_setting nfc_wake_sus_cfg = {
 };
 
 static struct msm_gpiomux_config msm_skuf_nfc_configs[] __initdata = {
-#if !defined (CONFIG_SEC_MILLET_PROJECT) && !defined(CONFIG_SEC_MATISSE_PROJECT) && !defined(CONFIG_MACH_AFYONLTE_TMO) && !defined(CONFIG_MACH_AFYONLTE_CAN)
+#if !defined (CONFIG_SEC_MILLET_PROJECT) && !defined(CONFIG_SEC_MATISSE_PROJECT) && !defined(CONFIG_MACH_AFYONLTE_TMO) && !defined(CONFIG_MACH_AFYONLTE_CAN) && !defined(CONFIG_MACH_AFYONLTE_MTR)
 	{					/*  NFC  LDO EN */
 		.gpio      = 0,
 		.settings = {

@@ -40,14 +40,17 @@
 #define MAX_ACTUATOR_REGION 5
 #define MAX_ACTUATOR_INIT_SET 50 //12
 #define MAX_ACTUATOR_REG_TBL_SIZE 8
+#define MAX_ACTUATOR_AF_TOTAL_STEPS 1024
 
 #define MOVE_NEAR 0
 #define MOVE_FAR  1
 
-#define MAX_EEPROM_NAME 32
+#define MSM_ACTUATOR_MOVE_SIGNED_FAR -1
+#define MSM_ACTUATOR_MOVE_SIGNED_NEAR  1
 
 #define MAX_EEPROM_NAME 32
 
+#define MAX_AF_ITERATIONS 3
 #define MAX_NUMBER_OF_STEPS 47
 
 //************************************* Native functionalities for YUV sensor added by jai.prakash
@@ -216,6 +219,8 @@ enum msm_sensor_power_seq_gpio_t {
 	SENSOR_GPIO_EXT_VANA_POWER,
 	SENSOR_GPIO_EXT_VIO_POWER,
 	SENSOR_GPIO_EXT_CAMIO_EN,
+	SENSOR_GPIO_EXT_VAF_POWER,
+	SENSOR_GPIO_MIPI_CHANGE,
 	SENSOR_GPIO_MAX,
 };
 
@@ -680,6 +685,9 @@ enum msm_camera_led_config_t {
 	MSM_CAMERA_LED_HIGH,
 	MSM_CAMERA_LED_INIT,
 	MSM_CAMERA_LED_RELEASE,
+#if defined(CONFIG_MACH_VICTORLTE_CTC) || defined(CONFIG_SEC_MEGA2_PROJECT)
+	MSM_CAMERA_LED_FACTORY = 8,
+#endif
 };
 
 struct msm_camera_led_cfg_t {

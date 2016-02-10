@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,11 +14,7 @@
 
 #define pr_fmt(fmt) "AXI: %s(): " fmt, __func__
 
-#if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_MILLETLTE_COMMON) || \
-	defined(CONFIG_SEC_KACTIVE_PROJECT) || defined(CONFIG_SEC_KSPORTS_PROJECT) || \
-	defined(CONFIG_SEC_S_PROJECT) || defined(CONFIG_SEC_PATEK_PROJECT)
 #define DEBUG_MSM_BUS_ARB_REQ
-#endif
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -326,8 +322,7 @@ static uint64_t get_node_maxib(struct msm_bus_inode_info *info)
 	}
 
 	MSM_BUS_DBG("%s: Node %d numpnodes %d maxib %llu", __func__,
-	info->num_pnodes, info->node_info->id, maxib);
-
+		info->num_pnodes, info->node_info->id, maxib);
 	return maxib;
 }
 
@@ -394,10 +389,10 @@ static int update_path(int curr, int pnode, uint64_t req_clk, uint64_t req_bw,
 	*info->pnode[index].sel_clk = req_clk;
 
 	/**
-	* If master supports dual configuration, check if
-	* the configuration needs to be changed based on
-	* incoming requests
-	*/
+	 * If master supports dual configuration, check if
+	 * the configuration needs to be changed based on
+	 * incoming requests
+	 */
 	if (info->node_info->dual_conf) {
 		uint64_t node_maxib = 0;
 		node_maxib = get_node_maxib(info);

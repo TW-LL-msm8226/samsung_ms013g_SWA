@@ -96,7 +96,7 @@ static void get_step_det_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 static void get_light_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
-#ifdef CONFIG_SENSORS_SSP_TMG399X
+#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_TMD37823)
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 10);
 	*iDataIdx += 10;
 #else
@@ -129,17 +129,37 @@ static void get_gesture_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 static void get_proximity_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
+#if defined(CONFIG_SENSORS_SSP_TMG399X)
 	memset(&sensorsdata->prox[0], 0, 1);
 	memcpy(&sensorsdata->prox[0], pchRcvDataFrame + *iDataIdx, 2);
-	//memcpy(&sensorsdata->prox[1], pchRcvDataFrame + *iDataIdx + 1, 1);
 	*iDataIdx += 2;
+#else
+	memset(&sensorsdata->prox[0], 0, 2);
+	memcpy(&sensorsdata->prox[0], pchRcvDataFrame + *iDataIdx, 1);
+	memcpy(&sensorsdata->prox[1], pchRcvDataFrame + *iDataIdx + 1, 2);
+	*iDataIdx += 3;
+#endif
 }
 
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+static void get_uv_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memset(&sensorsdata->uv, 0, 1);
+	memcpy(&sensorsdata->uv, pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
+#endif
 static void get_proximity_rawdata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
+#if defined(CONFIG_SENSORS_SSP_TMG399X)
 	memcpy(&sensorsdata->prox[0], pchRcvDataFrame + *iDataIdx, 1);
 	*iDataIdx += 1;
+#else
+	memcpy(&sensorsdata->prox[0], pchRcvDataFrame + *iDataIdx, 2);
+	*iDataIdx += 2;
+#endif
 }
 
 #ifdef CONFIG_SENSORS_SSP_SHTC1
@@ -191,12 +211,12 @@ void refresh_task(struct work_struct *work) {
 			struct ssp_data, work_refresh);
 
 	if(data->bSspShutdown == true) {
-		pr_err("[SSP]: %s - ssp already shutdown\n", __func__);
+		pr_err("[SSP] %s - ssp already shutdown\n", __func__);
 		return;
 	}
 
 	wake_lock(&data->ssp_wake_lock);
-	pr_err("[SSP]: %s\n", __func__);
+	pr_err("[SSP] %s\n", __func__);
 	data->uResetCnt++;
 
 	if (initialize_mcu(data) > 0) {
@@ -234,7 +254,7 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength) {
 		case MSG2AP_INST_BYPASS_DATA:
 			iSensorData = pchRcvDataFrame[iDataIdx++];
 			if ((iSensorData < 0) || (iSensorData >= SENSOR_MAX)) {
-				pr_err("[SSP]: %s - Mcu data frame1 error %d\n", __func__,
+				pr_err("[SSP] %s - Mcu data frame1 error %d\n", __func__,
 						iSensorData);
 				return ERROR;
 			}
@@ -246,7 +266,7 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength) {
 		case MSG2AP_INST_DEBUG_DATA:
 			iSensorData = print_mcu_debug(pchRcvDataFrame, &iDataIdx, iLength);
 			if (iSensorData) {
-				pr_err("[SSP]: %s - Mcu data frame3 error %d\n", __func__,
+				pr_err("[SSP] %s - Mcu data frame3 error %d\n", __func__,
 						iSensorData);
 				return ERROR;
 			}
@@ -304,6 +324,9 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->get_sensor_data[TEMPERATURE_HUMIDITY_SENSOR] =
 		get_temp_humidity_sensordata;
 #endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	data->get_sensor_data[UV_SENSOR] = get_uv_sensordata;
+#endif
 	data->get_sensor_data[ROTATION_VECTOR] = get_rot_sensordata;
 	data->get_sensor_data[GAME_ROTATION_VECTOR] = get_rot_sensordata;
 	data->get_sensor_data[STEP_DETECTOR] = get_step_det_sensordata;
@@ -331,6 +354,9 @@ void initialize_function_pointer(struct ssp_data *data)
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	data->report_sensor_data[TEMPERATURE_HUMIDITY_SENSOR] =
 		report_temp_humidity_data;
+#endif
+#ifdef CONFIG_SENSORS_SSP_UVIS25
+	data->report_sensor_data[UV_SENSOR] = report_uv_data;
 #endif
 	data->report_sensor_data[ROTATION_VECTOR] = report_rot_data;
 	data->report_sensor_data[GAME_ROTATION_VECTOR] = report_game_rot_data;

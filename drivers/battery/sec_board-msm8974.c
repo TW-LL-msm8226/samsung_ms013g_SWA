@@ -31,6 +31,13 @@ extern int current_cable_type;
 #endif
 extern unsigned int system_rev;
 
+static enum qpnp_vadc_channels temp_channel;
+static enum qpnp_vadc_channels chg_temp_channel;
+static struct sec_fuelgauge_info *sec_fuelgauge = NULL;
+
+#if defined(CONFIG_BATTERY_SAMSUNG_DATA)
+#include CONFIG_BATTERY_SAMSUNG_DATA_FILE
+#else //CONFIG_BATTERY_SAMSUNG_DATA
 #if defined(CONFIG_FUELGAUGE_MAX17048)
 static struct battery_data_t samsung_battery_data[] = {
 	/* SDI battery data (High voltage 4.35V) */
@@ -118,12 +125,16 @@ static struct battery_data_t samsung_battery_data[] = {
 		.temp_cohot = -175,
 		.temp_cocold = -5825,
 #elif defined(CONFIG_SEC_KSPORTS_PROJECT)
-		.RCOMP0 = 0x62,
-		.RCOMP_charging = 0x62,
+		.RCOMP0 = 0x67,
+		.RCOMP_charging = 0x67,
 		.temp_cohot = -175,
 		.temp_cocold = -5825,
-#elif defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_KACTIVE_PROJECT) || \
-		defined(CONFIG_SEC_S_PROJECT) || defined(CONFIG_SEC_PATEK_PROJECT)
+#elif defined(CONFIG_SEC_K_PROJECT)
+		.RCOMP0 = 0x5D,
+		.RCOMP_charging = 0x5D,
+		.temp_cohot = -175,
+		.temp_cocold = -5825,
+#elif defined(CONFIG_SEC_KACTIVE_PROJECT)
 		.RCOMP0 = 0x5D,
 		.RCOMP_charging = 0x5D,
 		.temp_cohot = -175,
@@ -145,7 +156,7 @@ static struct battery_data_t samsung_battery_data[] = {
 #if defined(CONFIG_MACH_PICASSO) || defined(CONFIG_MACH_LT03)
 		.Capacity = 0x3F76, /* N1/N2: 8123mAh */
 #elif defined(CONFIG_MACH_MONDRIAN)
-		.Capacity = 0x2456, /* Mondrian : 4651mAh */
+		.Capacity = 0x257E,
 #else
 		.Capacity = 0x4A38, /* V1/V2: 9500mAh */
 #endif
@@ -169,10 +180,8 @@ static struct battery_data_t samsung_battery_data[] = {
 };
 #endif
 
-
 #if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_KACTIVE_PROJECT) || \
-	defined(CONFIG_SEC_KSPORTS_PROJECT) || defined(CONFIG_SEC_S_PROJECT) || \
-	defined(CONFIG_SEC_PATEK_PROJECT)
+	defined(CONFIG_SEC_KSPORTS_PROJECT)
 #define CAPACITY_MAX			990
 #define CAPACITY_MAX_MARGIN	50
 #define CAPACITY_MIN			-7
@@ -207,11 +216,6 @@ static struct battery_data_t samsung_battery_data[] = {
 #define CAPACITY_MAX_MARGIN	50
 #define CAPACITY_MIN			0
 #endif
-
-
-//static struct qpnp_vadc_chip *adc_client;
-static enum qpnp_vadc_channels temp_channel;
-static struct sec_fuelgauge_info *sec_fuelgauge = NULL;
 
 #if defined(CONFIG_MACH_KLTE_EUR) || defined(CONFIG_MACH_KLTE_ATT) || defined(CONFIG_MACH_KLTE_TMO) || \
 	defined (CONFIG_MACH_KLTE_SKT) || defined(CONFIG_MACH_KLTE_KTT) || defined(CONFIG_MACH_KLTE_LGT) || \
@@ -253,7 +257,8 @@ static sec_bat_adc_table_data_t temp_table[] = {
 	{42030,	-250},
 	{42327,	-300},
 };
-#elif defined(CONFIG_MACH_KACTIVELTE_EUR) || defined(CONFIG_MACH_KACTIVELTE_ATT) || defined(CONFIG_MACH_KACTIVELTE_CAN) || defined(CONFIG_MACH_KACTIVELTE_SKT)
+#elif defined(CONFIG_MACH_KACTIVELTE_EUR) || defined(CONFIG_MACH_KACTIVELTE_ATT) || defined(CONFIG_MACH_KACTIVELTE_CAN) || defined(CONFIG_MACH_KACTIVELTE_SKT) \
+	|| defined(CONFIG_MACH_KACTIVELTE_DCM)
 static sec_bat_adc_table_data_t temp_table[] = {
 	{26009,	900},
 	{26280,	850},
@@ -287,15 +292,15 @@ static sec_bat_adc_table_data_t temp_table[] = {
 	{26685,	750},
 	{27082,	700},
 	{27512,	650},
-	{27850,	600},
-	{28173,	550},
-	{28388,	530},
-	{28740,	500},
-	{29030,	490},
-	{29320,	480},
-	{29610,	470},
-	{29900,	460},
-	{30200,	450},
+	{27900,	600},
+	{28223,	550},
+	{28438,	530},
+	{28790,	500},
+	{29080,	490},
+	{29370,	480},
+	{29660,	470},
+	{29950,	460},
+	{30250,	450},
 	{31223,	400},
 	{32138,	350},
 	{33153,	300},
@@ -831,9 +836,12 @@ static sec_bat_adc_table_data_t temp_table[] = {
 };
 #endif
 
+static sec_bat_adc_table_data_t chg_temp_table[] = {
+	{0, 0},
+};
+
 #if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_KACTIVE_PROJECT) || \
-	defined(CONFIG_SEC_KSPORTS_PROJECT) || defined(CONFIG_SEC_S_PROJECT) || \
-	defined(CONFIG_SEC_PATEK_PROJECT)
+	defined(CONFIG_SEC_KSPORTS_PROJECT)
 #define TEMP_HIGHLIMIT_THRESHOLD_EVENT		800
 #define TEMP_HIGHLIMIT_RECOVERY_EVENT		750
 #define TEMP_HIGHLIMIT_THRESHOLD_NORMAL		800
@@ -844,8 +852,7 @@ static sec_bat_adc_table_data_t temp_table[] = {
 
 #if defined(CONFIG_MACH_KLTE_TMO) || defined(CONFIG_MACH_KLTE_ATT) || \
 	defined(CONFIG_MACH_KLTE_CAN) || defined(CONFIG_MACH_KLTE_SPR) || \
-	defined(CONFIG_MACH_KLTE_MTR) || defined(CONFIG_SEC_S_PROJECT) || \
-	defined(CONFIG_MACH_KACTIVELTE_SKT)
+	defined(CONFIG_MACH_KLTE_MTR) || defined(CONFIG_MACH_KACTIVELTE_SKT)
 #define TEMP_HIGH_THRESHOLD_EVENT	600
 #define TEMP_HIGH_RECOVERY_EVENT		460
 #define TEMP_LOW_THRESHOLD_EVENT		-50
@@ -859,17 +866,17 @@ static sec_bat_adc_table_data_t temp_table[] = {
 #define TEMP_LOW_THRESHOLD_LPM		-50
 #define TEMP_LOW_RECOVERY_LPM		-20
 #elif defined(CONFIG_MACH_KSPORTSLTE_SPR)
-#define TEMP_HIGH_THRESHOLD_EVENT	640
-#define TEMP_HIGH_RECOVERY_EVENT		465
-#define TEMP_LOW_THRESHOLD_EVENT		-5
-#define TEMP_LOW_RECOVERY_EVENT		13
-#define TEMP_HIGH_THRESHOLD_NORMAL	545
-#define TEMP_HIGH_RECOVERY_NORMAL	465
-#define TEMP_LOW_THRESHOLD_NORMAL	0
-#define TEMP_LOW_RECOVERY_NORMAL	23
-#define TEMP_HIGH_THRESHOLD_LPM		545
-#define TEMP_HIGH_RECOVERY_LPM		475
-#define TEMP_LOW_THRESHOLD_LPM		21
+#define TEMP_HIGH_THRESHOLD_EVENT	600
+#define TEMP_HIGH_RECOVERY_EVENT		460
+#define TEMP_LOW_THRESHOLD_EVENT		-50
+#define TEMP_LOW_RECOVERY_EVENT		0
+#define TEMP_HIGH_THRESHOLD_NORMAL	550
+#define TEMP_HIGH_RECOVERY_NORMAL	470
+#define TEMP_LOW_THRESHOLD_NORMAL	-50
+#define TEMP_LOW_RECOVERY_NORMAL	0
+#define TEMP_HIGH_THRESHOLD_LPM		500
+#define TEMP_HIGH_RECOVERY_LPM		480
+#define TEMP_LOW_THRESHOLD_LPM		-30
 #define TEMP_LOW_RECOVERY_LPM		23
 #elif defined(CONFIG_MACH_KACTIVELTE_ATT)
 #define TEMP_HIGH_THRESHOLD_EVENT	600
@@ -937,7 +944,7 @@ static sec_bat_adc_table_data_t temp_table[] = {
 #define TEMP_LOW_THRESHOLD_LPM		-50
 #define TEMP_LOW_RECOVERY_LPM		0
 #elif defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_KACTIVE_PROJECT) || \
-	defined(CONFIG_SEC_LOCALE_CHN) || defined(CONFIG_SEC_PATEK_PROJECT)
+	defined(CONFIG_SEC_LOCALE_CHN)
 #define TEMP_HIGH_THRESHOLD_EVENT	600
 #define TEMP_HIGH_RECOVERY_EVENT		460
 #define TEMP_LOW_THRESHOLD_EVENT		-50
@@ -1291,7 +1298,7 @@ static sec_bat_adc_table_data_t temp_table[] = {
 #define TEMP_LOW_THRESHOLD_LPM		-50
 #define TEMP_LOW_RECOVERY_LPM		0
 #elif defined(CONFIG_MACH_LT03)
-#if defined(CONFIG_MACH_LT03_VZW) || defined(CONFIG_MACH_LT03_TMO)
+#if defined(CONFIG_MACH_LT03_VZW)
 #define TEMP_HIGH_THRESHOLD_EVENT	567
 #define TEMP_HIGH_RECOVERY_EVENT		480
 #define TEMP_LOW_THRESHOLD_EVENT		-50
@@ -1304,6 +1311,19 @@ static sec_bat_adc_table_data_t temp_table[] = {
 #define TEMP_HIGH_RECOVERY_LPM		480
 #define TEMP_LOW_THRESHOLD_LPM		-20
 #define TEMP_LOW_RECOVERY_LPM		0
+#elif defined(CONFIG_MACH_LT03_TMO)
+#define TEMP_HIGH_THRESHOLD_EVENT       530
+#define TEMP_HIGH_RECOVERY_EVENT                480
+#define TEMP_LOW_THRESHOLD_EVENT                -50
+#define TEMP_LOW_RECOVERY_EVENT         0
+#define TEMP_HIGH_THRESHOLD_NORMAL      530
+#define TEMP_HIGH_RECOVERY_NORMAL       480
+#define TEMP_LOW_THRESHOLD_NORMAL       -50
+#define TEMP_LOW_RECOVERY_NORMAL        0
+#define TEMP_HIGH_THRESHOLD_LPM         510
+#define TEMP_HIGH_RECOVERY_LPM          460
+#define TEMP_LOW_THRESHOLD_LPM          -50
+#define TEMP_LOW_RECOVERY_LPM           0
 #else
 #define TEMP_HIGH_THRESHOLD_EVENT	600
 #define TEMP_HIGH_RECOVERY_EVENT		400
@@ -1320,8 +1340,8 @@ static sec_bat_adc_table_data_t temp_table[] = {
 #endif
 #else
 #define TEMP_HIGH_THRESHOLD_EVENT	700
-#define TEMP_HIGH_RECOVERY_EVENT		420
-#define TEMP_LOW_THRESHOLD_EVENT		-50
+#define TEMP_HIGH_RECOVERY_EVENT	420
+#define TEMP_LOW_THRESHOLD_EVENT	-50
 #define TEMP_LOW_RECOVERY_EVENT		0
 #define TEMP_HIGH_THRESHOLD_NORMAL	700
 #define TEMP_HIGH_RECOVERY_NORMAL	420
@@ -1331,6 +1351,34 @@ static sec_bat_adc_table_data_t temp_table[] = {
 #define TEMP_HIGH_RECOVERY_LPM		420
 #define TEMP_LOW_THRESHOLD_LPM		-50
 #define TEMP_LOW_RECOVERY_LPM		0
+#endif
+#endif //CONFIG_BATTERY_SAMSUNG_DATA
+
+#if defined(CONFIG_MACH_MONDRIAN)
+int sec_bat_check_battery_company(void)
+{
+	int result = BATT_TYPE_ATL;
+	int rc, data =  -1;
+	struct qpnp_vadc_result results;
+
+	rc = qpnp_vadc_read(NULL, LR_MUX5_PU2_AMUX_THM2, &results);
+
+	if (rc) {
+		pr_err("%s: Unable to read batt id rc=%d\n",
+				__func__, rc);
+		return BATT_TYPE_ATL;
+	}
+	data = results.adc_code;
+
+	pr_info("%s: batt_id_adc = (%d)\n", __func__, data);
+	/* SDI: 28500, ATL: 31000 */
+	if (data > 31000) {
+		result = BATT_TYPE_ATL;
+	} else {
+		result = BATT_TYPE_SDI;
+	}
+	return result;
+}
 #endif
 
 void sec_bat_check_batt_id(struct sec_battery_info *battery)
@@ -1365,7 +1413,8 @@ void sec_bat_check_batt_id(struct sec_battery_info *battery)
 		samsung_battery_data[0].Capacity = 0x4010;
 		samsung_battery_data[0].type_str = "BYD";
 	}
-#else
+#endif
+#if defined(CONFIG_MACH_VIENNA) || defined(CONFIG_MACH_MONDRIAN)
 	/* SDI: 28500, ATL: 31000 */
 	if (data > 31000) {
 		battery->pdata->vendor = "ATL ATL";
@@ -1377,7 +1426,6 @@ void sec_bat_check_batt_id(struct sec_battery_info *battery)
 		samsung_battery_data[0].type_str = "ATL";
 	}
 #endif
-
 	pr_err("%s: batt_type(%s), batt_id(%d), cap(0x%x), type(%s)\n",
 			__func__, battery->pdata->vendor, data,
 			samsung_battery_data[0].Capacity, samsung_battery_data[0].type_str);
@@ -1416,6 +1464,8 @@ static void sec_bat_adc_ap_init(struct platform_device *pdev,
 #else
 	temp_channel = LR_MUX4_PU2_AMUX_THM1;
 #endif
+	if (battery->pdata->chg_temp_check)
+		chg_temp_channel = LR_MUX9_PU1_AMUX_THM5;
 
 #if defined(CONFIG_FUELGAUGE_MAX17050)
 	/* battery id checking*/
@@ -1446,6 +1496,22 @@ static int sec_bat_adc_ap_read(struct sec_battery_info *battery, int channel)
 	case SEC_BAT_ADC_CHANNEL_BAT_CHECK :
 		qpnp_vadc_read(NULL, P_MUX8_1_3, &results);
 		data = ((int)results.physical) / 1000;
+		break;
+#if defined(CONFIG_FUELGAUGE_MAX17050) || defined(CONFIG_MACH_CHAGALL_KDI)
+	case SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE:
+		qpnp_vadc_read(NULL, P_MUX5_1_1, &results);
+		/* pullup resistance: 1M, pulldown: 470k  */
+		data = ((int)results.physical) * 1470 / 470 / 1000;
+		break;
+#endif
+	case SEC_BAT_ADC_CHANNEL_CHG_TEMP:
+		rc = qpnp_vadc_read(NULL, chg_temp_channel, &results);
+		if (rc) {
+			pr_err("%s: Unable to read chg temperature rc=%d\n",
+				__func__, rc);
+			return 33000;
+		}
+		data = results.adc_code;
 		break;
 	default :
 		break;
@@ -1674,7 +1740,7 @@ bool sec_bat_check_callback(struct sec_battery_info *battery)
 	}
 	return value.intval;
 }
-bool sec_bat_check_cable_result_callback(
+void sec_bat_check_cable_result_callback(struct device *dev,
 		int cable_type)
 {
 #if defined(CONFIG_SEC_H_PROJECT) || defined(CONFIG_SEC_JS_PROJECT) || defined(CONFIG_SEC_FRESCO_PROJECT)
@@ -1700,8 +1766,7 @@ bool sec_bat_check_cable_result_callback(
 		}
 	}
 #elif defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_KACTIVE_PROJECT) || \
-	defined(CONFIG_SEC_KSPORTS_PROJECT) || defined(CONFIG_SEC_S_PROJECT) || \
-	defined(CONFIG_SEC_PATEK_PROJECT)
+	defined(CONFIG_SEC_KSPORTS_PROJECT) || defined(CONFIG_SEC_S_PROJECT)
 	struct regulator *max77826_ldo6;
 	current_cable_type = cable_type;
 
@@ -1709,21 +1774,47 @@ bool sec_bat_check_cable_result_callback(
 	{
 		pr_info("%s set ldo off\n", __func__);
 		max77826_ldo6 = regulator_get(NULL, "max77826_ldo6");
-		if(max77826_ldo6 > 0) {
+		if(max77826_ldo6) {
 			regulator_disable(max77826_ldo6);
+			regulator_put(max77826_ldo6);
 		}
 	}
 	else
 	{
 		pr_info("%s set ldo on\n", __func__);
 		max77826_ldo6 = regulator_get(NULL, "max77826_ldo6");
-		if(max77826_ldo6 > 0) {
+		if(max77826_ldo6) {
 			regulator_enable(max77826_ldo6);
+			regulator_put(max77826_ldo6);
 		}
 	}
-	regulator_put(max77826_ldo6);
+#elif defined(CONFIG_SEC_PATEK_PROJECT)
+	struct regulator *vreg_lvs3;
+	current_cable_type = cable_type;
+
+	if (current_cable_type == POWER_SUPPLY_TYPE_BATTERY)
+	{
+		pr_info("%s set lvs3 off\n", __func__);
+		vreg_lvs3 = regulator_get(NULL, "8084_lvs3");
+		if (!IS_ERR(vreg_lvs3))
+		{
+			if (regulator_disable(vreg_lvs3))
+				pr_err("%s: error for disabling regulator VF_1P8\n", __func__);
+			regulator_put(vreg_lvs3);
+		}
+	}
+	else
+	{
+		pr_info("%s set lvs3 on\n", __func__);
+		vreg_lvs3 = regulator_get(NULL, "8084_lvs3");
+		if (!IS_ERR(vreg_lvs3))
+		{
+			if (regulator_enable(vreg_lvs3))
+				pr_err("%s: error for enabling regulator VF_1P8\n", __func__);
+			regulator_put(vreg_lvs3);
+		}
+	}
 #endif
-	return true;
 }
 
 int sec_bat_check_cable_callback(struct sec_battery_info *battery)
@@ -1776,10 +1867,18 @@ void board_battery_init(struct platform_device *pdev, struct sec_battery_info *b
 		battery->pdata->temp_adc_table_size = sizeof(temp_table)/sizeof(sec_bat_adc_table_data_t);
 		battery->pdata->temp_amb_adc_table_size = sizeof(temp_table)/sizeof(sec_bat_adc_table_data_t);
 	}
+
+	if ((!battery->pdata->chg_temp_adc_table) &&
+		(battery->pdata->chg_temp_check)) {
+		pr_info("%s : assign chg temp adc table\n", __func__);
+		battery->pdata->chg_temp_adc_table = chg_temp_table;
+		battery->pdata->chg_temp_adc_table_size = sizeof(chg_temp_table)/sizeof(sec_bat_adc_table_data_t);
+	}
+
 	battery->pdata->event_check = true;
 #if defined(CONFIG_SEC_K_PROJECT) || defined(CONFIG_SEC_KACTIVE_PROJECT) || \
 	defined(CONFIG_SEC_KSPORTS_PROJECT) || defined(CONFIG_SEC_S_PROJECT) || \
-	defined(CONFIG_SEC_PATEK_PROJECT)
+	defined(CONFIG_SEC_PATEK_PROJECT) || defined(CONFIG_MACH_CHAGALL_KDI)
 	battery->pdata->temp_highlimit_threshold_event = TEMP_HIGHLIMIT_THRESHOLD_EVENT;
 	battery->pdata->temp_highlimit_recovery_event = TEMP_HIGHLIMIT_RECOVERY_EVENT;
 	battery->pdata->temp_highlimit_threshold_normal = TEMP_HIGHLIMIT_THRESHOLD_NORMAL;
@@ -1810,6 +1909,15 @@ void board_battery_init(struct platform_device *pdev, struct sec_battery_info *b
 	battery->pdata->check_adc_min = 150;
 #endif
 
+#if defined(CONFIG_BATTERY_SWELLING)
+	battery->pdata->swelling_high_temp_block = BATT_SWELLING_HIGH_TEMP_BLOCK;
+	battery->pdata->swelling_high_temp_recov = BATT_SWELLING_HIGH_TEMP_RECOV;
+	battery->pdata->swelling_low_temp_blck = BATT_SWELLING_LOW_TEMP_BLOCK;
+	battery->pdata->swelling_low_temp_recov = BATT_SWELLING_LOW_TEMP_RECOV;
+	battery->pdata->swelling_rechg_voltage = BATT_SWELLING_RECHG_VOLTAGE;
+	battery->pdata->swelling_block_time = BATT_SWELLING_BLOCK_TIME;
+#endif
+
 	adc_init_type(pdev, battery);
 }
 
@@ -1836,7 +1944,8 @@ void board_fuelgauge_init(struct sec_fuelgauge_info *fuelgauge)
 	fuelgauge->pdata->capacity_max_margin = CAPACITY_MAX_MARGIN;
 	fuelgauge->pdata->capacity_min = CAPACITY_MIN;
 #if defined(CONFIG_SEC_VIENNA_PROJECT) || defined(CONFIG_SEC_V2_PROJECT) ||\
-	defined(CONFIG_MACH_PICASSO_LTE) || defined(CONFIG_MACH_MONDRIAN) || defined(CONFIG_MACH_LT03)
+	defined(CONFIG_MACH_PICASSO_LTE) || defined(CONFIG_MACH_MONDRIAN) || defined(CONFIG_MACH_LT03) ||\
+	defined(CONFIG_MACH_KLIMT) || defined(CONFIG_MACH_CHAGALL)
 	fuelgauge->pdata->temp_adc_table = temp_table;
 	fuelgauge->pdata->temp_adc_table_size = sizeof(temp_table)/sizeof(sec_bat_adc_table_data_t);
 #endif

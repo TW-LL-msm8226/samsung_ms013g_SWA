@@ -80,7 +80,7 @@
 /* HW self test */
 #define BYTES_PER_SENSOR	6
 #define DEF_ST_STABLE_TIME	200
-#define DEF_GYRO_WAIT_TIME	51
+#define DEF_GYRO_WAIT_TIME	55
 #define DEF_ST_PRECISION	1000
 #define BITS_ACCEL_OUT		0x08
 #define BITS_GYRO_OUT		0x70
@@ -171,6 +171,7 @@ struct mpu6500_selftest {
 	unsigned char accel_config2;
 	unsigned char gyro_config;
 	unsigned char int_enable;
+	unsigned char fifo_enable;
 };
 
 /*
@@ -227,6 +228,11 @@ static int mpu6500_backup_register(struct inv_mpu_state *st)
 	if (result)
 		return result;
 
+	result = inv_i2c_read(st, MPUREG_FIFO_EN,
+				 1, &mpu6500_selftest.fifo_enable);
+	if (result)
+		return result;
+
 	result =
 	    inv_i2c_read(st, MPUREG_INT_ENABLE,
 				 1, &mpu6500_selftest.int_enable);
@@ -279,6 +285,11 @@ static int mpu6500_recover_register(struct inv_mpu_state *st)
 	result =
 	    inv_i2c_single_write(st, MPUREG_SMPLRT_DIV,
 					 mpu6500_selftest.smplrt_div);
+	if (result)
+		return result;
+
+	result = inv_i2c_single_write(st, MPUREG_FIFO_EN,
+					 mpu6500_selftest.fifo_enable);
 	if (result)
 		return result;
 
@@ -684,14 +695,14 @@ static int mpu6500_do_powerup(struct inv_mpu_state *st)
 static int mpu6500_do_test(struct inv_mpu_state *st, int self_test_flag,
 	int *gyro_result, int *accel_result, int sensors)
 {
-	int result, i, j, packet_size;
+	int result, i, j, k, packet_size;
 	u8 data[BYTES_PER_SENSOR * 2], d;
 	int fifo_count, packet_count, ind, s;
 
 	if ((sensors & MPU6500_HWST_ALL) == MPU6500_HWST_ALL)
 		packet_size = BYTES_PER_SENSOR * 2;
 	else
-	packet_size = BYTES_PER_SENSOR;
+		packet_size = BYTES_PER_SENSOR;
 
 	result = inv_i2c_single_write(st, MPUREG_INT_ENABLE, 0);
 	if (result)
@@ -767,11 +778,14 @@ static int mpu6500_do_test(struct inv_mpu_state *st, int self_test_flag,
 
 		fifo_count = be16_to_cpup((__be16 *)(&data[0]));
 		packet_count = fifo_count / packet_size;
-		result = inv_i2c_read(st, MPUREG_FIFO_R_W,
-			packet_size, data);
 
-		if (result)
-			return result;
+		for(k = 0 ; k < 5 ; k++)
+		{
+			result = inv_i2c_read(st, MPUREG_FIFO_R_W,
+				packet_size, data);
+			if (result)
+				return result;
+		}
 
 		if( packet_count < (INIT_SELFTEST_SAMPLES - 3)) {
 			printk(KERN_INFO "HW_SELF_TEST_PACKET_ERROR=%d", packet_count);
@@ -796,9 +810,9 @@ static int mpu6500_do_test(struct inv_mpu_state *st, int self_test_flag,
 			}
 
 			if (sensors & MPU6500_HWST_GYRO)
-			for (j = 0; j < THREE_AXIS; j++)
-			gyro_result[j] +=
-			(short)be16_to_cpup( (__be16 *)(&data[ind + 2 * j]));
+				for (j = 0; j < THREE_AXIS; j++)
+					gyro_result[j] +=
+					(short)be16_to_cpup((__be16 *)(&data[ind + 2 * j]));
 
 			s++;
 			i++;

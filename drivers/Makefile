@@ -152,8 +152,10 @@ obj-$(CONFIG_MOTOR_DRV_DRV2603) += motor/
 obj-$(CONFIG_VIBETONZ)		+= motor/
 obj-$(CONFIG_MSM_VIBRATOR)	+= motor/
 obj-$(CONFIG_HAPTIC_ISA1200)	+=motor/
+obj-$(CONFIG_MAX77826_VIBRATOR)	+= motor/
+obj-$(CONFIG_DRV2604_VIBRATOR)	+=motor/
 
-obj-$(CONFIG_FELICA) 		+= felica/
+obj-$(CONFIG_FELICA)		+= felica/
 
 obj-$(CONFIG_SENSORS_SSP)	+= sensorhub/
 obj-$(CONFIG_SENSORS_FINGERPRINT)	+= fingerprint/
@@ -163,3 +165,4 @@ obj-$(CONFIG_IR_REMOCON_MC96FR116)	+= irda/
 obj-$(CONFIG_IRDA_COMMON_LDO)	+= irda/
 obj-$(CONFIG_SEC_NET_FILTER)	+= secfilter/
 
+obj-$(CONFIG_MACH_BAFFIN2_SGLTE) += qsc/

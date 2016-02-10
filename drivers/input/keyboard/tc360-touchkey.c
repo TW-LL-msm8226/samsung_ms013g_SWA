@@ -146,11 +146,11 @@ struct fw_image {
 	u8 data[0];
 } __attribute__ ((packed));
 
-struct tc360_data {
+struct tc300k_data {
 	struct i2c_client		*client;
 	struct input_dev		*input_dev;
 	char				phys[32];
-	struct tc360_platform_data	*pdata;
+	struct tc300k_platform_data	*pdata;
 	struct early_suspend		early_suspend;
 	struct mutex			lock;
 	struct fw_image			*fw_img;
@@ -187,80 +187,234 @@ struct tc360_data {
 	int led_wq_passed;
 	int ic_fw_ver;
 
+#ifdef TSP_BOOSTER
+	struct delayed_work	work_dvfs_off;
+	struct delayed_work	work_dvfs_chg;
+	struct mutex		dvfs_lock;
+	bool dvfs_lock_status;
+	int dvfs_old_stauts;
+	int dvfs_boost_mode;
+	int dvfs_freq;
+#endif
 };
 
-static void tc360_destroy_interface(struct tc360_data *data);
+static void tc300k_destroy_interface(struct tc300k_data *data);
 #ifdef CONFIG_HAS_EARLYSUSPEND
-static void tc360_early_suspend(struct early_suspend *h);
-static void tc360_late_resume(struct early_suspend *h);
+static void tc300k_early_suspend(struct early_suspend *h);
+static void tc300k_late_resume(struct early_suspend *h);
 #endif 
 #ifdef USE_OPEN_CLOSE
-static int tc360_input_open(struct input_dev *dev);
-static void tc360_input_close(struct input_dev *dev);
+static int tc300k_input_open(struct input_dev *dev);
+static void tc300k_input_close(struct input_dev *dev);
 #endif
 
-static int tc360_keycodes[]={KEY_BACK,KEY_RECENT,KEY_DUMMY_BACK,KEY_DUMMY_MENU};
+static int tc300k_keycodes[]={KEY_BACK,KEY_RECENT,KEY_DUMMY_BACK,KEY_DUMMY_MENU};
 
-static void tc360_gpio_request(struct tc360_data *info)
+
+#ifdef TSP_BOOSTER
+static void tc300k_change_dvfs_lock(struct work_struct *work)
 {
-	int ret = 0;
-	dev_info(&info->client->dev, "%s: enter \n",__func__);
+	struct tc300k_data *data = container_of(work, struct tc300k_data, work_dvfs_chg.work);
+	int retval = 0;
+	mutex_lock(&data->dvfs_lock);
 
-	ret = gpio_request(info->pdata->gpio_en, "touchkey_en_gpio");
-			if (ret) {
-				printk(KERN_ERR "%s: unable to request touchkey_en_gpio[%d]\n",
-						__func__, info->pdata->gpio_en);
-			}
-
-	
-	ret = gpio_request(info->pdata->gpio_int, "touchkey_irq");
-		if (ret) {
-			printk(KERN_ERR "%s: unable to request touchkey_irq [%d]\n",
-					__func__, info->pdata->gpio_int);
-		}
-
+	retval = set_freq_limit(DVFS_TOUCH_ID, data->dvfs_freq);
+	if (retval < 0)
+		dev_info(&data->client->dev,
+			"%s: booster change failed(%d).\n",
+			__func__, retval);
+	data->dvfs_lock_status = false;
+	mutex_unlock(&data->dvfs_lock);
 }
 
-void tc360_power(struct tc360_data *info, int onoff)
+static void tc300k_set_dvfs_off(struct work_struct *work)
+{
+	struct tc300k_data *data =
+		container_of(work, struct tc300k_data, work_dvfs_off.work);
+	int retval;
+
+	mutex_lock(&data->dvfs_lock);
+	retval = set_freq_limit(DVFS_TOUCH_ID, -1);
+	if (retval < 0)
+		dev_info(&data->client->dev,
+			"%s: booster stop failed(%d).\n",
+			__func__, retval);
+
+	data->dvfs_lock_status = true;
+	mutex_unlock(&data->dvfs_lock);
+}
+
+static void tc300k_set_dvfs_lock(struct tc300k_data *data,
+					uint32_t on)
 {
 	int ret = 0;
-
-	dev_info(&info->client->dev, "%s: power %s\n",__func__, onoff ? "on" : "off");
-
-	if (info->pdata->gpio_en > 0) {
-		ret = gpio_direction_output(info->pdata->gpio_en, onoff);
-		if (ret) {
-			dev_err(&info->client->dev,
-					"%s: unable to set_direction for vdd_led [%d]\n",
-					__func__, info->pdata->gpio_en);
-		}
+	
+	if (data->dvfs_boost_mode == DVFS_STAGE_NONE) {
+		dev_dbg(&data->client->dev,
+				"%s: DVFS stage is none(%d)\n",
+				__func__, data->dvfs_boost_mode);
+		return;
 	}
 
+	mutex_lock(&data->dvfs_lock);
+	if (on == 1) {
+			cancel_delayed_work(&data->work_dvfs_chg);
+
+		if (data->dvfs_lock_status) {
+			ret = set_freq_limit(DVFS_TOUCH_ID, data->dvfs_freq);
+					if (ret < 0)
+						dev_info(&data->client->dev,
+					"%s: cpu first lock failed(%d)\n", __func__, ret);
+			data->dvfs_lock_status = false;
+		}
+
+		schedule_delayed_work(&data->work_dvfs_off,
+			msecs_to_jiffies(TOUCH_BOOSTER_CHG_TIME));
+
+	} else if (on == 0) {
+		cancel_delayed_work(&data->work_dvfs_off);
+				schedule_delayed_work(&data->work_dvfs_chg,
+				msecs_to_jiffies(TOUCH_BOOSTER_OFF_TIME));
+
+	} else if (on == 2) {
+		if (data->dvfs_lock_status) {
+			cancel_delayed_work(&data->work_dvfs_off);
+			cancel_delayed_work(&data->work_dvfs_chg);
+			schedule_work(&data->work_dvfs_off.work);
+		}
+	}
+	mutex_unlock(&data->dvfs_lock);
 }
 
-void tc360_led_power(struct tc360_data *info, bool onoff)
+static void tc300k_init_dvfs(struct tc300k_data *data)
+{
+	mutex_init(&data->dvfs_lock);
+	data->dvfs_boost_mode = DVFS_STAGE_DUAL;
+	data->dvfs_freq = MIN_TOUCH_LIMIT_SECOND;
+
+	INIT_DELAYED_WORK(&data->work_dvfs_off, tc300k_set_dvfs_off);
+	INIT_DELAYED_WORK(&data->work_dvfs_chg, tc300k_change_dvfs_lock);
+
+	data->dvfs_lock_status = true;
+}
+#endif
+
+static void tc300k_gpio_request(struct tc300k_data *data)
+{
+	int ret = 0;
+	dev_info(&data->client->dev, "%s: enter \n",__func__);
+
+	ret = gpio_request(data->pdata->gpio_en, "touchkey_en_gpio");
+			if (ret) {
+				printk(KERN_ERR "%s: unable to request touchkey_en_gpio[%d]\n",
+						__func__, data->pdata->gpio_en);
+			}
+
+	ret = gpio_request(data->pdata->gpio_int, "touchkey_irq");
+		if (ret) {
+			printk(KERN_ERR "%s: unable to request touchkey_irq [%d]\n",
+					__func__, data->pdata->gpio_int);
+		}
+
+	gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_sda, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+	gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_scl, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+
+}
+
+void tc300k_power(struct tc300k_data *data, int onoff)
+{
+	int ret = 0;
+
+	dev_info(&data->client->dev, "%s: power %s\n",__func__, onoff ? "on" : "off");
+
+	if ((s32)data->pdata->gpio_en > 0) {
+		ret = gpio_direction_output(data->pdata->gpio_en, onoff);
+		if (ret) {
+			dev_err(&data->client->dev,
+					"%s: unable to set_direction for gpio_en [%d]\n",
+					__func__, data->pdata->gpio_en);
+		}
+	}
+	else{
+		//check for SUB PMIC ldo
+		if (!data->vcc_en) {
+			if (data->pdata->vcc_en_ldo_name){
+				data->vcc_en = regulator_get(NULL, data->pdata->vcc_en_ldo_name);
+				if (IS_ERR(data->vcc_en)) {
+					dev_err(&data->client->dev,"Regulator(vcc_en) get failed rc = %ld\n", PTR_ERR(data->vcc_en));
+					return;
+				}
+				ret = regulator_set_voltage(data->vcc_en,1800000, 1800000);
+				if (ret) {
+					dev_err(&data->client->dev,"regulator(vcc_en) set_vtg failed rc=%d\n", ret);
+					return;
+				}
+			} else {
+				dev_err(&data->client->dev,"vcc_en_ldo_name is not read from dtsi");
+				return;
+			}
+		}
+
+		if (onoff) {
+			if (!regulator_is_enabled(data->vcc_en)) {
+				ret = regulator_enable(data->vcc_en);
+				if (ret) {
+					pr_err("%s: enable vcc_en failed, rc=%d\n",__func__, ret);
+					return;
+				}
+				pr_info("%senable vcc_en success.\n",__func__);
+			} else {
+				pr_info("%svcc_en is already enabled.\n",__func__);
+			}
+		} else {
+			if (regulator_is_enabled(data->vcc_en)) {
+				ret = regulator_disable(data->vcc_en);
+				if (ret) {
+					pr_err("%s: disable vcc_en failed, rc=%d\n", __func__, ret);
+					return;
+				}
+				pr_info("%sdisable vcc_en success.\n",__func__);
+			} else {
+				pr_info("%svcc_en is already disabled.\n",__func__);
+			}
+		}
+	}
+}
+
+void tc300k_led_power(struct tc300k_data *data, bool onoff)
 {
 	int ret;
 
 	pr_info("%s: %s\n", __func__, onoff ? "on" : "off");
 
-	if (!info->vdd_led) {
-		info->vdd_led = regulator_get(&info->client->dev,"vdd_led");
-		if (IS_ERR(info->vdd_led)) {
-			dev_err(&info->client->dev,"Regulator(vdd_led) get failed rc = %ld\n", PTR_ERR(info->vdd_led));
-			return;
+	if (!data->vdd_led) {
+		data->vdd_led = regulator_get(&data->client->dev,"vdd_led");
+		if (IS_ERR(data->vdd_led)) {
+			dev_err(&data->client->dev,"Regulator(vdd_led) get failed for PMIC. rc = %ld\n", PTR_ERR(data->vdd_led));
+
+			//check for SUB PMIC ldo
+			if (data->pdata->vdd_led_ldo_name){
+                                data->vdd_led = regulator_get(NULL, data->pdata->vdd_led_ldo_name);
+                                if (IS_ERR(data->vdd_led)) {
+                                        dev_err(&data->client->dev,"Regulator(vdd_led) get failed for SUB PMIC. rc = %ld\n", PTR_ERR(data->vdd_led));
+                                        return;
+                                }
+                        } else {
+                                dev_err(&data->client->dev,"vdd_led_ldo_name is not read from dtsi");
+                                return;
+                        }
 		}
-			ret = regulator_set_voltage(info->vdd_led,3300000, 3300000);
+		ret = regulator_set_voltage(data->vdd_led,3300000, 3300000);
 		if (ret) {
-			dev_err(&info->client->dev,
+			dev_err(&data->client->dev,
 				"regulator(vdd_led) set_vtg failed rc=%d\n", ret);
 			return;
 		}
 	}
 	
 	if (onoff) {
-		if (!regulator_is_enabled(info->vdd_led)) {
-			ret = regulator_enable(info->vdd_led);
+		if (!regulator_is_enabled(data->vdd_led)) {
+			ret = regulator_enable(data->vdd_led);
 			if (ret) {
 				pr_err("%s: enable vdd_led failed, rc=%d\n",__func__, ret);
 				return;
@@ -269,8 +423,8 @@ void tc360_led_power(struct tc360_data *info, bool onoff)
 		} else
 			pr_info("%sTKEY_LED 3.3V[vdd_led] is already on.\n",__func__);
 	} else {
-		if (regulator_is_enabled(info->vdd_led)) {
-			ret = regulator_disable(info->vdd_led);
+		if (regulator_is_enabled(data->vdd_led)) {
+			ret = regulator_disable(data->vdd_led);
 			if (ret) {
 				pr_err("%s: disable vdd_led failed, rc=%d\n",
 					__func__, ret);
@@ -283,19 +437,29 @@ void tc360_led_power(struct tc360_data *info, bool onoff)
 }
 
 #ifdef CONFIG_OF
-static int tc360_parse_dt(struct device *dev,
-			struct tc360_platform_data *pdata)
+static int tc300k_parse_dt(struct device *dev,
+			struct tc300k_platform_data *pdata)
 {
 	struct device_node *np = dev->of_node;
+	int rc;
 
-	pdata->num_key =ARRAY_SIZE(tc360_keycodes);
-	pdata->keycodes = tc360_keycodes;
+	pdata->num_key =ARRAY_SIZE(tc300k_keycodes);
+	pdata->keycodes = tc300k_keycodes;
 
 	pdata->gpio_en = of_get_named_gpio_flags(np, "coreriver,vcc_en-gpio", 0, &pdata->vcc_gpio_flags);
 	pdata->gpio_scl = of_get_named_gpio_flags(np, "coreriver,scl-gpio", 0, &pdata->scl_gpio_flags);
 	pdata->gpio_sda = of_get_named_gpio_flags(np, "coreriver,sda-gpio", 0, &pdata->sda_gpio_flags);
 	pdata->gpio_int = of_get_named_gpio_flags(np, "coreriver,irq-gpio", 0, &pdata->irq_gpio_flags);
 
+	//raed SUB PMIC ldo names from dtsi
+	rc = of_property_read_string(np, "coreriver,vcc_en_ldo_name", &pdata->vcc_en_ldo_name);
+	if (rc < 0) {
+                pr_err("[%s]: Unable to read vcc_en_ldo_name rc = %d\n", __func__, rc);
+        }
+        rc = of_property_read_string(np, "coreriver,vdd_led_ldo_name", &pdata->vdd_led_ldo_name);
+        if (rc < 0) {
+                pr_err("[%s]: Unable to read vdd_led_ldo_name rc = %d\n", __func__, rc);
+        }
 	
 	pr_err("%s: gpio_en = %d, tkey_scl= %d, tkey_sda= %d, tkey_int= %d",
 				__func__, pdata->gpio_en, pdata->gpio_scl, pdata->gpio_sda, pdata->gpio_int);
@@ -303,16 +467,16 @@ static int tc360_parse_dt(struct device *dev,
 	return 0;
 }
 #else
-static int tc360_parse_dt(struct device *dev,
-			struct tc360_platform_data *pdata)
+static int tc300k_parse_dt(struct device *dev,
+			struct tc300k_platform_data *pdata)
 {
 	return -ENODEV;
 }
 #endif
 
-static irqreturn_t tc360_interrupt(int irq, void *dev_id)
+static irqreturn_t tc300k_interrupt(int irq, void *dev_id)
 {
-	struct tc360_data *data = dev_id;
+	struct tc300k_data *data = dev_id;
 	struct i2c_client *client = data->client;
 	u8 key_val, index;
 	bool press;
@@ -354,10 +518,14 @@ static irqreturn_t tc360_interrupt(int irq, void *dev_id)
 	}
 	input_sync(data->input_dev);
 
+#ifdef TSP_BOOSTER
+		tc300k_set_dvfs_lock(data, !!press);
+#endif
+
 	return IRQ_HANDLED;
 }
 
-static int tc360_get_module_ver(struct tc360_data *data)
+static int tc300k_get_module_ver(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int retries = 3;
@@ -368,9 +536,9 @@ read_module_version:
 	if (module_ver < 0) {
 		dev_err(&client->dev, "failed to read module ver (%d)\n", module_ver);
 		if (retries-- > 0) {
-			tc360_power(data,0);
+			tc300k_power(data,0);
 			msleep(TC300K_POWERON_DELAY);
-			tc360_power(data,1);
+			tc300k_power(data,1);
 			msleep(TC300K_POWERON_DELAY);
 			goto read_module_version;
 		}
@@ -379,7 +547,7 @@ read_module_version:
 	return module_ver;
 }
 
-static int tc360_get_fw_ver(struct tc360_data *data)
+static int tc300k_get_fw_ver(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int ver;
@@ -387,11 +555,11 @@ static int tc360_get_fw_ver(struct tc360_data *data)
 read_version:
 	ver = i2c_smbus_read_byte_data(client, TC300K_FWVER);
 	if (ver < 0) {
-		dev_err(&client->dev, "tc360_get_fw_ver : failed to read fw ver (%d)\n",ver);
+		dev_err(&client->dev, "tc300k_get_fw_ver : failed to read fw ver (%d)\n",ver);
 		if (retries-- > 0) {
-			tc360_power(data,0);
+			tc300k_power(data,0);
 			msleep(TC300K_POWERON_DELAY);
-			tc360_power(data,1);
+			tc300k_power(data,1);
 			msleep(TC300K_POWERON_DELAY);
 			goto read_version;
 		}
@@ -401,10 +569,10 @@ read_version:
 
 	return ver;
 }
-static int load_fw_built_in(struct tc360_data *data);
+static int load_fw_built_in(struct tc300k_data *data);
 
 
-static inline void setsda(struct tc360_data *data, int state)
+static inline void setsda(struct tc300k_data *data, int state)
 {
 	if (state)
 		gpio_direction_output(data->pdata->gpio_sda, 1);
@@ -412,7 +580,7 @@ static inline void setsda(struct tc360_data *data, int state)
 		gpio_direction_output(data->pdata->gpio_sda, 0);
 }
 
-static inline void setscl(struct tc360_data *data, int state)
+static inline void setscl(struct tc300k_data *data, int state)
 {
 	if (state)
 		gpio_direction_output(data->pdata->gpio_scl, 1);
@@ -420,17 +588,17 @@ static inline void setscl(struct tc360_data *data, int state)
 		gpio_direction_output(data->pdata->gpio_scl, 0);
 }
 
-static inline int getsda(struct tc360_data *data)
+static inline int getsda(struct tc300k_data *data)
 {
 	return gpio_get_value(data->pdata->gpio_sda);
 }
 
-static inline int getscl(struct tc360_data *data)
+static inline int getscl(struct tc300k_data *data)
 {
 	return gpio_get_value(data->pdata->gpio_scl);
 }
 
-static void send_9bit(struct tc360_data *data, u8 buff)
+static void send_9bit(struct tc300k_data *data, u8 buff)
 {
 	int i;
 
@@ -447,7 +615,7 @@ static void send_9bit(struct tc360_data *data, u8 buff)
 	setsda(data, 0);
 }
 
-static u8 wait_9bit(struct tc360_data *data)
+static u8 wait_9bit(struct tc300k_data *data)
 {
 	int i;
 	int buf;
@@ -470,10 +638,10 @@ static u8 wait_9bit(struct tc360_data *data)
 	return send_buf;
 }
 
-static void tc300k_reset_for_isp(struct tc360_data *data, bool start)
+static void tc300k_reset_for_isp(struct tc300k_data *data, bool start)
 {
 	if (start) {
-		tc360_led_power(data,0);
+		tc300k_led_power(data,0);
 
 		gpio_direction_input(data->pdata->gpio_int);
 		gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_int,0, GPIO_CFG_INPUT,GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
@@ -483,26 +651,26 @@ static void tc300k_reset_for_isp(struct tc360_data *data, bool start)
 		gpio_direction_output(data->pdata->gpio_scl, 0);
 		gpio_direction_output(data->pdata->gpio_sda, 0);
 
-		tc360_power(data,0);
+		tc300k_power(data,0);
 		msleep(100);
 
-		tc360_power(data,1);
+		tc300k_power(data,1);
 
 		usleep_range(5000, 6000);
 
 	} else {
 
-		tc360_led_power(data,0);
-		tc360_power(data,0);
+		tc300k_led_power(data,0);
+		tc300k_power(data,0);
 
 		msleep(100);
 		gpio_direction_output(data->pdata->gpio_scl, 1);
 		gpio_direction_output(data->pdata->gpio_sda, 1);
 
 		usleep(10);
-		tc360_power(data,1);
+		tc300k_power(data,1);
 		msleep(70);
-		tc360_led_power(data,1);
+		tc300k_led_power(data,1);
 
 		gpio_direction_input(data->pdata->gpio_sda);
 		gpio_direction_input(data->pdata->gpio_scl);
@@ -512,7 +680,7 @@ static void tc300k_reset_for_isp(struct tc360_data *data, bool start)
 	}
 }
 
-static void load(struct tc360_data *data, u8 buff)
+static void load(struct tc300k_data *data, u8 buff)
 {
     send_9bit(data, TC300K_LDDATA);
     udelay(1);
@@ -520,7 +688,7 @@ static void load(struct tc360_data *data, u8 buff)
     udelay(1);
 }
 
-static void step(struct tc360_data *data, u8 buff)
+static void step(struct tc300k_data *data, u8 buff)
 {
     send_9bit(data, TC300K_CCFG);
     udelay(1);
@@ -528,7 +696,7 @@ static void step(struct tc360_data *data, u8 buff)
     udelay(2);
 }
 
-static void setpc(struct tc360_data *data, u16 addr)
+static void setpc(struct tc300k_data *data, u16 addr)
 {
     u8 buf[4];
     int i;
@@ -542,7 +710,7 @@ static void setpc(struct tc360_data *data, u16 addr)
         step(data, buf[i]);
 }
 
-static void configure_isp(struct tc360_data *data)
+static void configure_isp(struct tc300k_data *data)
 {
     u8 buf[7];
     int i;
@@ -556,7 +724,7 @@ static void configure_isp(struct tc360_data *data)
         step(data, buf[i]);
 }
 
-static int tc300k_erase_fw(struct tc360_data *data)
+static int tc300k_erase_fw(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int i;
@@ -609,7 +777,7 @@ static int tc300k_erase_fw(struct tc360_data *data)
 	return 0;
 }
 
-static int tc300k_write_fw(struct tc360_data *data)
+static int tc300k_write_fw(struct tc300k_data *data)
 {
 //	struct i2c_client *client = data->client;
 	u16 addr = 0;
@@ -633,7 +801,7 @@ static int tc300k_write_fw(struct tc360_data *data)
 }
 
 
-static int tc300k_verify_fw(struct tc360_data *data)
+static int tc300k_verify_fw(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	u16 addr = 0;
@@ -664,7 +832,7 @@ static int tc300k_verify_fw(struct tc360_data *data)
 	return 0;
 }
 
-static int tc300k_crc_check(struct tc360_data *data)
+static int tc300k_crc_check(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int ret;
@@ -713,9 +881,9 @@ static int tc300k_crc_check(struct tc360_data *data)
 }
 
 
-static void tc360_fw_update_worker(struct work_struct *work)
+static void tc300k_fw_update_worker(struct work_struct *work)
 {
-	struct tc360_data *data = container_of(work, struct tc360_data,
+	struct tc300k_data *data = container_of(work, struct tc300k_data,
 					       fw_work);
 	struct i2c_client *client = data->client;
 	int retries;
@@ -774,7 +942,7 @@ write_fw:
 	
 	tc300k_reset_for_isp(data, false);
 
-	fw_ver = tc360_get_fw_ver(data);
+	fw_ver = tc300k_get_fw_ver(data);
 	dev_info(&client->dev, "fw_ver(%#x)\n", fw_ver);
 
 	/* Crc check */
@@ -801,7 +969,7 @@ err_tc300k_flash_fw:
 	
 }
 
-static int load_fw_built_in(struct tc360_data *data)
+static int load_fw_built_in(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int ret;
@@ -828,7 +996,7 @@ out:
 	return ret;
 }
 
-static int load_fw_in_sdcard(struct tc360_data *data)
+static int load_fw_in_sdcard(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int ret;
@@ -874,7 +1042,7 @@ err_open_fw:
 	return ret;
 }
 
-static int tc360_load_fw(struct tc360_data *data, u8 fw_path)
+static int tc300k_load_fw(struct tc300k_data *data, u8 fw_path)
 {
 	struct i2c_client *client = data->client;
 	int ret;
@@ -901,7 +1069,7 @@ static int tc360_load_fw(struct tc360_data *data, u8 fw_path)
 	return 0;
 }
 
-static int tc360_unload_fw(struct tc360_data *data, u8 fw_path)
+static int tc300k_unload_fw(struct tc300k_data *data, u8 fw_path)
 {
 	struct i2c_client *client = data->client;
 
@@ -923,7 +1091,7 @@ static int tc360_unload_fw(struct tc360_data *data, u8 fw_path)
 	return 0;
 }
 
-static int tc360_flash_fw(struct tc360_data *data, u8 fw_path, bool force)
+static int tc300k_flash_fw(struct tc300k_data *data, u8 fw_path, bool force)
 {
 	struct i2c_client *client = data->client;
 	int ret;
@@ -931,16 +1099,16 @@ static int tc360_flash_fw(struct tc360_data *data, u8 fw_path, bool force)
 	int module_ver;
 
 	
-	ret = tc360_load_fw(data, fw_path);
+	ret = tc300k_load_fw(data, fw_path);
 	if (ret < 0) {
 		dev_err(&client->dev, "fail to load fw (%d)\n", ret);
 		return ret;
 	}
 	data->cur_fw_path = fw_path;
 	/* firmware version compare */	
-	fw_ver = tc360_get_fw_ver(data);
+	fw_ver = tc300k_get_fw_ver(data);
 
-	module_ver = tc360_get_module_ver(data);
+	module_ver = tc300k_get_module_ver(data);
 	dev_info(&client->dev, "fw_ver(%#x), module_ver(%#x)\n", fw_ver,module_ver);
 	
 	if ((fw_ver >= data->fw_img->first_fw_ver) && !force ) {
@@ -960,16 +1128,16 @@ static int tc360_flash_fw(struct tc360_data *data, u8 fw_path, bool force)
 	return FW_UPDATE_RUNNING;
 
  out:
-	tc360_unload_fw(data, fw_path);
+	tc300k_unload_fw(data, fw_path);
 	return ret;
 }
 
-static int tc360_initialize(struct tc360_data *data)
+static int tc300k_initialize(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int ret;
 
-	ret = tc360_flash_fw(data, FW_BUILT_IN, false);
+	ret = tc300k_flash_fw(data, FW_BUILT_IN, false);
 
 	if (ret < 0)
 		dev_err(&client->dev, "fail to flash fw (%d)\n", ret);
@@ -979,9 +1147,9 @@ static int tc360_initialize(struct tc360_data *data)
 	return ret;
 }
 
-static void tc360_led_worker(struct work_struct *work)
+static void tc300k_led_worker(struct work_struct *work)
 {
-	struct tc360_data *data = container_of(work, struct tc360_data,
+	struct tc300k_data *data = container_of(work, struct tc300k_data,
 					       led_work);
 	struct i2c_client *client = data->client;
 	u8 buf;
@@ -1017,7 +1185,7 @@ static void tc360_led_worker(struct work_struct *work)
 			__func__, cnt);
 #endif
 		if (--cnt <  0) {
-			dev_err(&client->dev, "%s: fail to tc360 led %s\n",
+			dev_err(&client->dev, "%s: fail to tc300k led %s\n",
 				__func__,
 				(br == LED_OFF) ? "OFF" : "ON");
 			return;
@@ -1030,11 +1198,11 @@ static void tc360_led_worker(struct work_struct *work)
 			__func__, ret);
 }
 
-static void tc360_led_set(struct led_classdev *led_cdev,
+static void tc300k_led_set(struct led_classdev *led_cdev,
 			  enum led_brightness value)
 {
-	struct tc360_data *data =
-			container_of(led_cdev, struct tc360_data, led);
+	struct tc300k_data *data =
+			container_of(led_cdev, struct tc300k_data, led);
 	struct i2c_client *client = data->client;
 
 	if (unlikely(wake_lock_active(&data->fw_wake_lock))) {
@@ -1057,14 +1225,14 @@ static void tc360_led_set(struct led_classdev *led_cdev,
 static ssize_t tc300k_fw_ver_ic_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ver;
 	int ret;
 
  	if(data->enabled){
 		data->fdata->fw_update_skip = 0;
-		ver = tc360_get_fw_ver(data); 
+		ver = tc300k_get_fw_ver(data); 
  	}
 	
 	ver = data->ic_fw_ver;
@@ -1084,13 +1252,13 @@ out:
 static ssize_t tc300k_fw_ver_src_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u16 ver;
 
 	if(data->enabled){
-		ret = tc360_load_fw(data, FW_BUILT_IN);
+		ret = tc300k_load_fw(data, FW_BUILT_IN);
 		if (ret < 0) {
 			dev_err(&client->dev, "%s: fail to load fw (%d)\n.", __func__,
 				ret);
@@ -1102,7 +1270,7 @@ static ssize_t tc300k_fw_ver_src_show(struct device *dev,
 	ver = data->fw_img->first_fw_ver;
 
 	if(data->enabled){
-		ret = tc360_unload_fw(data, FW_BUILT_IN);
+		ret = tc300k_unload_fw(data, FW_BUILT_IN);
 		if (ret < 0) {
 			dev_err(&client->dev, "%s: fail to unload fw (%d)\n.",
 				__func__, ret);
@@ -1121,7 +1289,7 @@ static ssize_t tc300k_fw_update_store(struct device *dev,
 				   struct device_attribute *devattr,
 				   const char *buf, size_t count)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 fw_path;
@@ -1152,7 +1320,7 @@ static ssize_t tc300k_fw_update_store(struct device *dev,
 	data->fdata->fw_flash_status = DOWNLOADING;
 	data->enabled = false;
 
-	ret = tc360_flash_fw(data, fw_path, true);
+	ret = tc300k_flash_fw(data, fw_path, true);
 	if (ret < 0) {
 		data->fdata->fw_flash_status = FAIL;
 		dev_err(&client->dev, "%s: fail to flash fw (%d)\n.", __func__,
@@ -1169,7 +1337,7 @@ static ssize_t tc300k_fw_update_status_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 
@@ -1210,7 +1378,7 @@ static int tc300k_factory_mode_enable(struct i2c_client *client, u8 cmd)
 static ssize_t tc300k_factory_mode(struct device *dev,
 	 struct device_attribute *attr, const char *buf, size_t count)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int scan_buffer;
 	int ret;
@@ -1260,7 +1428,7 @@ static ssize_t tc300k_factory_mode(struct device *dev,
 static ssize_t tc300k_factory_mode_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 
 	return sprintf(buf, "%d\n", data->factory_mode);
 }
@@ -1269,7 +1437,7 @@ static ssize_t recent_key_show(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6] = {0, };
@@ -1295,7 +1463,7 @@ static ssize_t recent_key_show(struct device *dev,
 static ssize_t recent_key_ref_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1321,7 +1489,7 @@ static ssize_t recent_key_ref_show(struct device *dev,
 static ssize_t back_key_show(struct device *dev,
 				      struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	int value;
@@ -1346,7 +1514,7 @@ static ssize_t back_key_show(struct device *dev,
 static ssize_t back_key_ref_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1371,7 +1539,7 @@ static ssize_t back_key_ref_show(struct device *dev,
 static ssize_t dummy_recent_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1396,7 +1564,7 @@ static ssize_t dummy_recent_show(struct device *dev,
 static ssize_t dummy_back_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1421,7 +1589,7 @@ static ssize_t dummy_back_show(struct device *dev,
 static ssize_t recent_key_raw(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1446,7 +1614,7 @@ static ssize_t recent_key_raw(struct device *dev,
 static ssize_t recent_key_raw_ref(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1471,7 +1639,7 @@ static ssize_t recent_key_raw_ref(struct device *dev,
 static ssize_t back_key_raw(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1496,7 +1664,7 @@ static ssize_t back_key_raw(struct device *dev,
 static ssize_t back_key_raw_ref(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1521,7 +1689,7 @@ static ssize_t back_key_raw_ref(struct device *dev,
 static ssize_t dummy_recent_raw(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1546,7 +1714,7 @@ static ssize_t dummy_recent_raw(struct device *dev,
 static ssize_t dummy_back_raw(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 buff[6];
@@ -1571,7 +1739,7 @@ static ssize_t dummy_back_raw(struct device *dev,
 static ssize_t tc300k_threshold_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 threshold_h, threshold_l;
@@ -1615,7 +1783,7 @@ static int tc300k_glove_mode_enable(struct i2c_client *client, u8 cmd)
 static ssize_t tc300k_glove_mode(struct device *dev,
 	 struct device_attribute *attr, const char *buf, size_t count)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int scan_buffer;
 	int ret;
@@ -1664,7 +1832,7 @@ static ssize_t tc300k_glove_mode(struct device *dev,
 static ssize_t tc300k_glove_mode_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 
 	return sprintf(buf, "%d\n", data->glove_mode);
 }
@@ -1672,7 +1840,7 @@ static ssize_t tc300k_glove_mode_show(struct device *dev,
 static ssize_t tc300k_modecheck_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	struct tc360_data *data = dev_get_drvdata(dev);
+	struct tc300k_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 	int ret;
 	u8 mode, glove, factory;
@@ -1695,6 +1863,52 @@ static ssize_t tc300k_modecheck_show(struct device *dev,
 
 	return sprintf(buf, "glove:%d, factory:%d\n", glove, factory);
 }
+
+#ifdef TSP_BOOSTER
+static ssize_t boost_level_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct tc300k_data *data = dev_get_drvdata(dev);
+	int val, retval;
+
+	dev_info(&data->client->dev, "%s\n", __func__);
+	sscanf(buf, "%d", &val);
+
+	if (val != 1 && val != 2 && val != 0) {
+		dev_info(&data->client->dev,
+			"%s: wrong cmd %d\n", __func__, val);
+		return count;
+	}
+	data->dvfs_boost_mode = val;
+	dev_info(&data->client->dev,
+			"%s: dvfs_boost_mode = %d\n",
+			__func__, data->dvfs_boost_mode);
+
+	if (data->dvfs_boost_mode == DVFS_STAGE_DUAL) {
+		data->dvfs_freq = MIN_TOUCH_LIMIT_SECOND;
+		dev_info(&data->client->dev,
+			"%s: boost_mode DUAL, dvfs_freq = %d\n",
+			__func__, data->dvfs_freq);
+	} else if (data->dvfs_boost_mode == DVFS_STAGE_SINGLE) {
+		data->dvfs_freq = MIN_TOUCH_LIMIT;
+		dev_info(&data->client->dev,
+			"%s: boost_mode SINGLE, dvfs_freq = %d\n",
+			__func__, data->dvfs_freq);
+	} else if (data->dvfs_boost_mode == DVFS_STAGE_NONE) {
+		data->dvfs_freq = -1;
+		retval = set_freq_limit(DVFS_TOUCH_ID, -1);
+		if (retval < 0) {
+			dev_err(&data->client->dev,
+					"%s: booster stop failed(%d).\n",
+					__func__, retval);
+			data->dvfs_lock_status = false;
+		}
+	}
+	return count;
+}
+#endif
+
 
 static DEVICE_ATTR(touchkey_threshold, S_IRUGO, tc300k_threshold_show, NULL);
 static DEVICE_ATTR(touchkey_firm_version_panel, S_IRUGO | S_IWUSR | S_IWGRP,
@@ -1723,6 +1937,10 @@ static DEVICE_ATTR(touchkey_factory_mode, S_IRUGO | S_IWUSR | S_IWGRP,
 		tc300k_factory_mode_show, tc300k_factory_mode);
 static DEVICE_ATTR(modecheck, S_IRUGO, tc300k_modecheck_show, NULL);
 
+#ifdef TSP_BOOSTER
+static DEVICE_ATTR(boost_level, S_IWUSR | S_IWGRP, NULL, boost_level_store);
+#endif
+
 static struct attribute *touchkey_attributes[] = {
 	&dev_attr_touchkey_threshold.attr,
 	&dev_attr_touchkey_firm_version_panel.attr,
@@ -1744,6 +1962,9 @@ static struct attribute *touchkey_attributes[] = {
 	&dev_attr_touchkey_factory_mode.attr,
 	&dev_attr_glove_mode.attr,
 	&dev_attr_modecheck.attr,
+#ifdef TSP_BOOSTER
+	&dev_attr_boost_level.attr,
+#endif
 	NULL,
 };
 
@@ -1751,13 +1972,13 @@ static struct attribute_group touchkey_attr_group = {
 	.attrs = touchkey_attributes,
 };
 
-static int tc360_init_interface(struct tc360_data *data)
+static int tc300k_init_interface(struct tc300k_data *data)
 {
 	struct i2c_client *client = data->client;
 	int ret;
 
 	data->fdata->dummy_dev = device_create(sec_class, NULL, (dev_t)NULL,
-					       data, TC360_DEVICE);
+					       data, TC300K_DEVICE);
 	if (IS_ERR(data->fdata->dummy_dev)) {
 		dev_err(&client->dev, "Failed to create fac tsp temp dev\n");
 		ret = -ENODEV;
@@ -1784,19 +2005,19 @@ err_create_sec_class_dev:
 	return ret;
 }
 
-static void tc360_destroy_interface(struct tc360_data *data)
+static void tc300k_destroy_interface(struct tc300k_data *data)
 {
 	sysfs_remove_group(&data->fdata->dummy_dev->kobj,
 			   &touchkey_attr_group);
 	device_destroy(sec_class, (dev_t)NULL);
 }
 
-static int __devinit tc360_probe(struct i2c_client *client,
+static int __devinit tc300k_probe(struct i2c_client *client,
 				 const struct i2c_device_id *id)
 { 	
-	struct tc360_platform_data *pdata;
+	struct tc300k_platform_data *pdata;
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
-	struct tc360_data *data;
+	struct tc300k_data *data;
 	struct input_dev *input_dev;
 	
 	int ret;
@@ -1810,20 +2031,20 @@ static int __devinit tc360_probe(struct i2c_client *client,
 
 	if (client->dev.of_node) {
 		pdata = devm_kzalloc(&client->dev,
-			sizeof(struct tc360_platform_data),
+			sizeof(struct tc300k_platform_data),
 				GFP_KERNEL);
 		if (!pdata) {
 			dev_info(&client->dev, "Failed to allocate memory\n");
 			return -ENOMEM;
 		}
 
-		err = tc360_parse_dt(&client->dev, pdata);
+		err = tc300k_parse_dt(&client->dev, pdata);
 		if (err)
 			return err;
 	}else
 		pdata = client->dev.platform_data;
 
-	data = kzalloc(sizeof(struct tc360_data), GFP_KERNEL);
+	data = kzalloc(sizeof(struct tc300k_data), GFP_KERNEL);
 	if (!data) {
 		dev_err(&client->dev, "failed to alloc memory\n");
 		ret = -ENOMEM;
@@ -1858,9 +2079,9 @@ static int __devinit tc360_probe(struct i2c_client *client,
 #endif
 
 	pdata->enable = 1;
-	tc360_gpio_request(data);
-	tc360_led_power(data,1);
-	tc360_power(data,1);
+	tc300k_gpio_request(data);
+	tc300k_led_power(data,1);
+	tc300k_power(data,1);
 	msleep(TC300K_POWERON_DELAY);
 	
 	data->suspend_type = data->pdata->suspend_type;
@@ -1869,7 +2090,7 @@ static int __devinit tc360_probe(struct i2c_client *client,
 	data->led_wq_passed=0;
 	
 	mutex_init(&data->lock);
-	wake_lock_init(&data->fw_wake_lock, WAKE_LOCK_SUSPEND, "tc360_fw_wake_lock");
+	wake_lock_init(&data->fw_wake_lock, WAKE_LOCK_SUSPEND, "tc300k_fw_wake_lock");
 
 	client->irq=gpio_to_irq(pdata->gpio_int);
 
@@ -1901,7 +2122,7 @@ static int __devinit tc360_probe(struct i2c_client *client,
 		goto err_register_input_dev;
 	}
 
-	ret = tc360_init_interface(data);
+	ret = tc300k_init_interface(data);
 	if (ret < 0) {
 		dev_err(&client->dev, "failed to init interface (%d)\n", ret);
 		goto err_init_interface;
@@ -1919,8 +2140,12 @@ static int __devinit tc360_probe(struct i2c_client *client,
 	
 
 #ifdef USE_OPEN_CLOSE
-	input_dev->open = tc360_input_open;
-	input_dev->close = tc360_input_close;
+	input_dev->open = tc300k_input_open;
+	input_dev->close = tc300k_input_close;
+#endif
+	
+#ifdef TSP_BOOSTER
+		tc300k_init_dvfs(data);
 #endif
 
 	data->fw_up_running = false;	
@@ -1931,21 +2156,21 @@ static int __devinit tc360_probe(struct i2c_client *client,
 		goto err_create_fw_wq;
 	}
 
-	INIT_WORK(&data->fw_work, tc360_fw_update_worker);	
+	INIT_WORK(&data->fw_work, tc300k_fw_update_worker);	
 	
 	if (client->irq) {
-		ret = request_threaded_irq(client->irq, NULL, tc360_interrupt,
-					IRQF_TRIGGER_FALLING, TC360_DEVICE, data);
+		ret = request_threaded_irq(client->irq, NULL, tc300k_interrupt,
+					IRQF_TRIGGER_FALLING, TC300K_DEVICE, data);
 		if (ret) {
 			dev_err(&client->dev, "fail to request irq (%d).\n",
 				client->irq);
 			goto err_request_irq;
 		}
 	}
-	ret =tc360_initialize(data); //firmware update
+	ret =tc300k_initialize(data); //firmware update
 	
 	if (ret < 0) {
-		dev_err(&client->dev, "fail to tc360 initialize (%d).\n",
+		dev_err(&client->dev, "fail to tc300k initialize (%d).\n",
 			ret);
 		goto err_initialize;
 	}
@@ -1961,8 +2186,8 @@ static int __devinit tc360_probe(struct i2c_client *client,
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	data->early_suspend.suspend = tc360_early_suspend;
-	data->early_suspend.resume = tc360_late_resume;
+	data->early_suspend.suspend = tc300k_early_suspend;
+	data->early_suspend.resume = tc300k_late_resume;
 	register_early_suspend(&data->early_suspend);
 #endif
 
@@ -1972,12 +2197,12 @@ static int __devinit tc360_probe(struct i2c_client *client,
 		ret = -ENOMEM;
 		goto err_create_led_wq;
 	}
-	INIT_WORK(&data->led_work, tc360_led_worker);
+	INIT_WORK(&data->led_work, tc300k_led_worker);
 
 	data->led.name = "button-backlight";
 	data->led.brightness = LED_OFF;
 	data->led.max_brightness = LED_FULL;
-	data->led.brightness_set = tc360_led_set;
+	data->led.brightness_set = tc300k_led_set;
 
 	ret = led_classdev_register(&client->dev, &data->led);
 	if (ret) {
@@ -1998,7 +2223,7 @@ err_initialize:
 err_request_irq:
 	destroy_workqueue(data->fw_wq);
 err_create_fw_wq:
-	tc360_destroy_interface(data);
+	tc300k_destroy_interface(data);
 err_init_interface:
 	input_unregister_device(input_dev);
 err_register_input_dev:
@@ -2013,9 +2238,9 @@ err_data_alloc:
 }
 
 
-static int __devexit tc360_remove(struct i2c_client *client)
+static int __devexit tc300k_remove(struct i2c_client *client)
 {
-	struct tc360_data *data = i2c_get_clientdata(client);
+	struct tc300k_data *data = i2c_get_clientdata(client);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	unregister_early_suspend(&data->early_suspend);
@@ -2033,10 +2258,10 @@ static int __devexit tc360_remove(struct i2c_client *client)
 }
 
 #if defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)
-static int tc360_suspend(struct device *dev)
+static int tc300k_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	struct tc360_data *data = i2c_get_clientdata(client);
+	struct tc300k_data *data = i2c_get_clientdata(client);
 	int i;
 	
 	mutex_lock(&data->lock);
@@ -2052,6 +2277,13 @@ static int tc360_suspend(struct device *dev)
 		return 0;
 	}
 
+#ifdef TSP_BOOSTER
+	tc300k_set_dvfs_lock(data, 2);
+	dev_info(&data->client->dev,
+			"%s: dvfs_lock free.\n", __func__);
+#endif
+
+
 	disable_irq(client->irq);
 	data->enabled = false;
 
@@ -2060,8 +2292,8 @@ static int tc360_suspend(struct device *dev)
 		input_report_key(data->input_dev, data->keycodes[i], 0);
 		input_sync(data->input_dev);
 
-	tc360_led_power(data,false);
-	tc360_power(data,0);		
+	tc300k_led_power(data,false);
+	tc300k_power(data,0);		
 	data->led_on = false;
 
 	mutex_unlock(&data->lock);
@@ -2069,10 +2301,10 @@ static int tc360_suspend(struct device *dev)
 	return 0;
 }
 
-static int tc360_resume(struct device *dev)
+static int tc300k_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	struct tc360_data *data = i2c_get_clientdata(client);
+	struct tc300k_data *data = i2c_get_clientdata(client);
 	int ret;
 	u8 cmd;
 
@@ -2089,8 +2321,13 @@ static int tc360_resume(struct device *dev)
 		goto out;
 	}
 
-	tc360_led_power(data,true);
-	tc360_power(data,1);
+#if defined(CONFIG_MACH_CHAGALL_KDI) 
+	tc300k_power(data,1);
+	tc300k_led_power(data,true);
+#else
+	tc300k_led_power(data,true);
+	tc300k_power(data,1);
+#endif
 	msleep(200);
 	enable_irq(client->irq);
 	data->enabled = true;
@@ -2126,56 +2363,60 @@ out:
 
 
 #ifdef USE_OPEN_CLOSE
-static int tc360_input_open(struct input_dev *dev)
+static int tc300k_input_open(struct input_dev *dev)
 {
-	struct tc360_data *data = input_get_drvdata(dev);
+	struct tc300k_data *data = input_get_drvdata(dev);
 
 	dev_info(&data->client->dev, "%s.\n", __func__);
-	tc360_resume(&data->client->dev);
+	gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_sda, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+	gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_scl, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+	tc300k_resume(&data->client->dev);
 
 	return 0;
 }
 
-static void tc360_input_close(struct input_dev *dev)
+static void tc300k_input_close(struct input_dev *dev)
 {
-	struct tc360_data *data = input_get_drvdata(dev);
+	struct tc300k_data *data = input_get_drvdata(dev);
 
 	dev_info(&data->client->dev, "%s.\n", __func__);
-	tc360_suspend(&data->client->dev);
+	gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_sda, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 1);
+	gpio_tlmm_config(GPIO_CFG(data->pdata->gpio_scl, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 1);
+	tc300k_suspend(&data->client->dev);
 }
 #endif
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-static void tc360_early_suspend(struct early_suspend *h)
+static void tc300k_early_suspend(struct early_suspend *h)
 {
-	struct tc360_data *data;
-	pr_info("tc360 early suspend\n");
-	data = container_of(h, struct tc360_data, early_suspend);
-	tc360_suspend(&data->client->dev);
-	pr_info("tc360 early suspend 2\n");
+	struct tc300k_data *data;
+	pr_info("tc300k early suspend\n");
+	data = container_of(h, struct tc300k_data, early_suspend);
+	tc300k_suspend(&data->client->dev);
+	pr_info("tc300k early suspend 2\n");
 }
 
-static void tc360_late_resume(struct early_suspend *h)
+static void tc300k_late_resume(struct early_suspend *h)
 {
-	struct tc360_data *data;
-	pr_info("tc360 late_resume\n");
-	data = container_of(h, struct tc360_data, early_suspend);
-	tc360_resume(&data->client->dev);
-	pr_info("tc360 late_resume 2\n");
+	struct tc300k_data *data;
+	pr_info("tc300k late_resume\n");
+	data = container_of(h, struct tc300k_data, early_suspend);
+	tc300k_resume(&data->client->dev);
+	pr_info("tc300k late_resume 2\n");
 }
 #endif
 
 #if !defined(USE_OPEN_CLOSE)
 #if defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)
-static const struct dev_pm_ops tc360_pm_ops = {
-	.suspend	= tc360_suspend,
-	.resume 	= tc360_resume,
+static const struct dev_pm_ops tc300k_pm_ops = {
+	.suspend	= tc300k_suspend,
+	.resume 	= tc300k_resume,
 };
 #endif
 #endif
 
-static const struct i2c_device_id tc360_id[] = {
-	{ TC360_DEVICE, 0 },
+static const struct i2c_device_id tc300k_id[] = {
+	{ TC300K_DEVICE, 0 },
 	{ }
 };
 
@@ -2188,28 +2429,35 @@ static struct of_device_id coreriver_match_table[] = {
 #define coreriver_match_table	NULL
 #endif
 
-MODULE_DEVICE_TABLE(i2c, tc360_id);
+MODULE_DEVICE_TABLE(i2c, tc300k_id);
 
-static struct i2c_driver tc360_driver = {
-	.probe		= tc360_probe,
-	.remove		= tc360_remove,
+static struct i2c_driver tc300k_driver = {
+	.probe		= tc300k_probe,
+	.remove		= tc300k_remove,
 	.driver = {
-		.name	= TC360_DEVICE,
+		.name	= TC300K_DEVICE,
 #if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
-		.pm	= &tc360_pm_ops,
+		.pm	= &tc300k_pm_ops,
 #endif
 #ifdef CONFIG_OF
 		.of_match_table = coreriver_match_table,
 #endif	
 	},
-	.id_table	= tc360_id,
+	.id_table	= tc300k_id,
 };
 
-static int __init tc360_init(void)
+static int __init tc300k_init(void)
 {
 	int ret = 0;
 
-	ret = i2c_add_driver(&tc360_driver);
+#ifdef CONFIG_SAMSUNG_LPM_MODE
+	if (poweroff_charging) {
+		pr_notice("%s : LPM Charging Mode!!\n", __func__);
+		return 0;
+	}
+#endif
+	
+	ret = i2c_add_driver(&tc300k_driver);
 	if (ret) {
 		printk(KERN_ERR "coreriver touch keypad registration failed. ret= %d\n",
 			ret);
@@ -2219,14 +2467,15 @@ static int __init tc360_init(void)
 	return ret;
 }
 
-static void __exit tc360_exit(void)
+static void __exit tc300k_exit(void)
 {
-	i2c_del_driver(&tc360_driver);
+	i2c_del_driver(&tc300k_driver);
 }
 
-module_init(tc360_init);
-module_exit(tc360_exit);
+module_init(tc300k_init);
+module_exit(tc300k_exit);
 
-MODULE_DESCRIPTION("CORERIVER TC360 touchkey driver");
-MODULE_AUTHOR("Taeyoon Yoon <tyoony.yoon@samsung.com>");
+MODULE_AUTHOR("Samsung Electronics");
+MODULE_DESCRIPTION("Touchkey driver for Coreriver TC300K");
 MODULE_LICENSE("GPL");
+

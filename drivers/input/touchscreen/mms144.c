@@ -1388,7 +1388,7 @@ int mms100_ISC_download_mbinary(struct mms_ts_info *info)
 
 	pr_info("[TSP ISC] %s\n", __func__);
 
-	mms100_reset(info);
+	mms_pwr_on_reset(info);
 /*
 	ret_msg = mms100_check_operating_mode(_client, EC_BOOT_ON_SUCCEEDED);
 	if (ret_msg != ISC_SUCCESS)
@@ -2450,6 +2450,8 @@ static void fw_update(void *device_data)
 			&& fw_ver >= fw_bin_ver) {
 		dev_info(&client->dev,
 			"fw version update does not need\n");
+		snprintf(result_buff, sizeof(result_buff), "OK");
+		set_cmd_result(info, result_buff, strnlen(result_buff, sizeof(result_buff)));
 		goto do_not_need_update;
 	}
 
@@ -3340,7 +3342,7 @@ int __devinit mms_ts_probe(struct i2c_client *client,
 	if (!pdata)
 		return -EINVAL;
 
-	melfas_request_gpio(pdata);
+
 #endif
 	info = kzalloc(sizeof(struct mms_ts_info), GFP_KERNEL);
 	if (!info) {
@@ -3380,10 +3382,11 @@ int __devinit mms_ts_probe(struct i2c_client *client,
 		info->max_x = 720;
 		info->max_y = 1280;
 	}
-
+	i2c_set_clientdata(client, info);
 	melfas_vdd_on(info, 1);
 	msleep(100);
-	i2c_set_clientdata(client, info);
+	melfas_request_gpio(pdata);
+
 
 	info->callbacks.inform_charger = melfas_ta_cb;
 	if (info->register_cb)

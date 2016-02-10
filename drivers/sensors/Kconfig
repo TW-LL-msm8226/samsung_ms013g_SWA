@@ -78,6 +78,13 @@ config SENSORS_CM36686_LEDA_EN_GPIO
 	help
 	  This option enables leda_en controlled by GPIO using CM36686 driver.
 
+config SENSORS_CM36686_USE_DUMMY_INITIAL
+	bool "Use dummy Initial for sending same initial value with last value"
+	depends on SENSORS_CM36686
+	default n
+	help
+	  Use dummy Initial for sending same initial value with last value before disable proximity sensor.
+
 config SENSORS_GP2A030A
 	depends on I2C
 	tristate "GP2A030A Light Driver"
@@ -143,6 +150,19 @@ config SENSORS_GRIP_ADJDET
 	default n
 	help
 	  GRIP sensor adj cable detect
+
+config SENSORS_SX9500_DEFENCE_CODE_FOR_CABLE
+	depends on SENSORS_SX9500
+	tristate "GRIP sensor defence code for usb cable"
+	default n
+	help
+	  GRIP sensor defence code for usb cable
+
+config SENSORS_SX9500_REGULATOR_ONOFF
+	tristate "GRIP sensor regulator onoff function"
+	default n
+	help
+	  GRIP sensor regulator onoff
 
 config SENSORS_SX9500_INIT_TOUCH_THRESHOLD
 	int "SX9500 Grip sensor threshold for init touch"
@@ -304,5 +324,32 @@ config SENSORS_MAX86900
 	  HRM sensor.
 	  This driver can also be built as a module.  If so, the module
 	  will be called max86900.
+
+config SENSORS_K303C
+	depends on I2C
+	tristate "ST K303C accel,magnetic combo"
+	default n
+	help
+	  This option enables st k303c accel and mag driver
+
+config SENSORS_BMA2X2
+	tristate "BMA255/BMA250E/BMA222E/BMA280 acceleration sensor support"
+	depends on I2C
+	help
+	  If you say yes here you get support for Bosch Sensortec's
+	  acceleration sensors BMA255/BMA250E/BMA222E/BMA280.
+
+config SENSORS_BMM050
+	tristate "BMM050 Magnetic Sensor Driver"
+	depends on I2C
+	help
+	 BMM050 Magnetic Sensor Driver implemented by Bosch-Sensortec.
+
+config INPUT_BMA2x2_ACC_ALERT_INT
+	tristate "BMA255/BMA250E/BMA222E/BMA280 acceleration sensor support"
+	depends on I2C
+	help
+	  If you say yes here you get support for Bosch Sensortec's
+	  acceleration sensors BMA255/BMA250E/BMA222E/BMA280.
 
 source "drivers/sensors/yas532/Kconfig"

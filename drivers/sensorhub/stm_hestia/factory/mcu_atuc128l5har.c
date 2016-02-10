@@ -42,7 +42,7 @@ ssize_t mcu_update_kernel_bin_show(struct device *dev,
 	int iRet = 0;
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
+	ssp_dbg("[SSP] %s - mcu binany update!\n", __func__);
 
 	iRet = forced_to_download_binary(data, UMS_BINARY);
 	if (iRet == SUCCESS) {
@@ -66,7 +66,7 @@ ssize_t mcu_update_kernel_crashed_bin_show(struct device *dev,
 	int iRet = 0;
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
+	ssp_dbg("[SSP] %s - mcu binany update!\n", __func__);
 
 	iRet = forced_to_download_binary(data, UMS_BINARY);
 	if (iRet == SUCCESS) {
@@ -90,7 +90,7 @@ ssize_t mcu_update_ums_bin_show(struct device *dev,
 	int iRet = 0;
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
+	ssp_dbg("[SSP] %s - mcu binany update!\n", __func__);
 
 	iRet = forced_to_download_binary(data, UMS_BINARY);
 	if (iRet == SUCCESS)
@@ -151,11 +151,11 @@ ssize_t mcu_factorytest_store(struct device *dev,
 		iRet = ssp_spi_async(data, msg);
 
 	} else {
-		pr_err("[SSP]: %s - invalid value %d\n", __func__, *buf);
+		pr_err("[SSP] %s - invalid value %d\n", __func__, *buf);
 		return -EINVAL;
 	}
 
-	ssp_dbg("[SSP]: MCU Factory Test Start! - %d\n", iRet);
+	ssp_dbg("[SSP] MCU Factory Test Start! - %d\n", iRet);
 
 	return size;
 }
@@ -167,7 +167,7 @@ ssize_t mcu_factorytest_show(struct device *dev,
 	struct ssp_data *data = dev_get_drvdata(dev);
 
 	if (data->bSspShutdown == true) {
-		ssp_dbg("[SSP]: %s - MCU Bin is crashed\n", __func__);
+		ssp_dbg("[SSP] %s - MCU Bin is crashed\n", __func__);
 		return sprintf(buf, "NG,NG,NG\n");
 	}
 
@@ -182,7 +182,7 @@ ssize_t mcu_factorytest_show(struct device *dev,
 			&& (buffer[4] == SUCCESS))
 		bMcuTestSuccessed = true;
 
-	ssp_dbg("[SSP]: MCU Factory Test Result - %s, %s, %s\n", MODEL_NAME,
+	ssp_dbg("[SSP] MCU Factory Test Result - %s, %s, %s\n", MODEL_NAME,
 		(bMcuTestSuccessed ? "OK" : "NG"), "OK");
 
 	return sprintf(buf, "%s,%s,%s\n", MODEL_NAME,
@@ -207,11 +207,11 @@ ssize_t mcu_sleep_factorytest_store(struct device *dev,
 		iRet = ssp_spi_async(data, msg);
 
 	} else {
-		pr_err("[SSP]: %s - invalid value %d\n", __func__, *buf);
+		pr_err("[SSP] %s - invalid value %d\n", __func__, *buf);
 		return -EINVAL;
 	}
 
-	ssp_dbg("[SSP]: MCU Sleep Factory Test Start! - %d\n", 1);
+	ssp_dbg("[SSP] MCU Sleep Factory Test Start! - %d\n", 1);
 
 	return size;
 }
@@ -232,19 +232,24 @@ ssize_t mcu_sleep_factorytest_show(struct device *dev,
 
 		if ((iSensorData < 0) ||
 			(iSensorData >= (SENSOR_MAX - 1))) {
-			pr_err("[SSP]: %s - Mcu data frame error %d\n",
+			pr_err("[SSP] %s - Mcu data frame error %d\n",
 				__func__, iSensorData);
 			goto exit;
 		}
 
-		data->get_sensor_data[iSensorData]((char *)buffer,
-			&iDataIdx, &(fsb[iSensorData]));
+		if(data->get_sensor_data[iSensorData] == NULL)
+			pr_err("[SSP] %s - get_sensor_data[%d] is null\n",
+				__func__, iDataIdx);
+		else {
+			data->get_sensor_data[iSensorData]((char *)buffer,
+				&iDataIdx, &(fsb[iSensorData]));
+		}
 	}
 
 	fsb[PRESSURE_SENSOR].pressure[0] -= data->iPressureCal;
 
 exit:
-	ssp_dbg("[SSP]: %s Result\n"
+	ssp_dbg("[SSP] %s Result\n"
 		"[SSP] accel %d,%d,%d\n"
 		"[SSP] gyro %d,%d,%d\n"
 		"[SSP] mag %d,%d,%d\n"

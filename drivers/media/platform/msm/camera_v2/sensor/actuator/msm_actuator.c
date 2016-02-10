@@ -187,8 +187,8 @@ static int32_t msm_actuator_vcm_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	uint16_t size, enum msm_actuator_data_type type,
 	struct reg_settings_t *settings)
 {
-	int32_t rc = -EFAULT;
-	int32_t i = 0;
+  int32_t rc = -EFAULT;
+  int32_t i = 0;
   uint16_t delay = 0;
   uint16_t status_addr = 0;
   uint16_t status_data = 0;
@@ -196,9 +196,9 @@ static int32_t msm_actuator_vcm_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
   uint16_t delay_count = 0;
   uint16_t delay_count_limit = 0;
   
-	CDBG("%s Enter, size %d\n", __func__, size);
+  CDBG("%s Enter, size %d\n", __func__, size);
 
-	for (i = 0; i < size; i++) {
+  for (i = 0; i < size; i++) {
     if(settings[i].reg_addr == MSM_ACTUATOR_INIT_FOCUS_DELAY){ 
       delay = settings[i].reg_data;
       usleep_range(delay, delay+1000);
@@ -235,17 +235,21 @@ static int32_t msm_actuator_vcm_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
     }
     else{
       CDBG("%s %d settings[%d].reg_addr = %d, settings[%d].reg_data = %d\n", 
-        __func__, __LINE__,i, settings[i].reg_addr, i, settings[i].reg_data);
-		  rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-				&a_ctrl->i2c_client,
-				settings[i].reg_addr,
-				settings[i].reg_data, MSM_CAMERA_I2C_BYTE_DATA);
+           __func__, __LINE__,i, settings[i].reg_addr, i, settings[i].reg_data);
+
+      rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+			&a_ctrl->i2c_client, settings[i].reg_addr,
+			settings[i].reg_data, MSM_CAMERA_I2C_BYTE_DATA);
+      if(rc < 0){
+        pr_err("%s:%d I2C write failure size[%d] writen[%d]\n",
+               __func__, __LINE__, size, i);
+        break;
+      }
     }
-	}
+  }
 
-	CDBG("Exit\n");
-
-	return rc;
+  CDBG("Exit\n");
+  return 0;
 }
 
 static int32_t msm_actuator_hall_effect_init_focus(
@@ -1501,6 +1505,10 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_cfg_data *cdata =
 		(struct msm_actuator_cfg_data *)argp;
 	int32_t rc = 0;
+	if (!a_ctrl) {
+		pr_err("failed\n");
+		return -EINVAL;
+	}
 	mutex_lock(a_ctrl->actuator_mutex);
 	CDBG("Enter\n");
 	CDBG("%s type %d\n", __func__, cdata->cfgtype);

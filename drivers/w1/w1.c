@@ -53,11 +53,16 @@ MODULE_DESCRIPTION("Driver for 1-wire Dallas network protocol.");
 static int w1_timeout = 2;
 int w1_max_slave_count = 1;
 int w1_max_slave_ttl = 2;
-
+#if defined(CONFIG_W1_FAST_CHECK)
+extern bool w1_is_resumed;
+#endif
 static struct w1_master *master_dev = NULL;
 
 extern int w1_ds28el15_verifymac(struct w1_slave *sl);
 extern int id, color, verification;
+#ifdef CONFIG_W1_SN
+extern char g_sn[14];
+#endif
 #ifdef CONFIG_W1_CF
 extern int cf_node;
 #endif
@@ -453,13 +458,28 @@ static int w1_atoreg_num(struct device *dev, const char *buf, size_t count,
 static struct w1_slave *w1_slave_search_device(struct w1_master *dev,
 	struct w1_reg_num *rn)
 {
-	struct w1_slave *sl;
+	struct w1_slave *sl = NULL;
 	list_for_each_entry(sl, &dev->slist, w1_slave_entry) {
-		if (sl->reg_num.family == rn->family &&
-				sl->reg_num.id == rn->id &&
-				sl->reg_num.crc == rn->crc) {
+#if defined(CONFIG_W1_FAST_CHECK)
+		if (w1_is_resumed == true) {
+			w1_is_resumed = false;
+			if (sl->reg_num.family == rn->family &&
+					sl->reg_num.id == rn->id &&
+					sl->reg_num.crc == rn->crc) {
+				return sl;
+			} else {
+				w1_slave_detach(sl);
+				return NULL;
+			}
+		} else {
 			return sl;
 		}
+#else
+		if (sl->reg_num.family == rn->family &&
+					sl->reg_num.id == rn->id &&
+					sl->reg_num.crc == rn->crc)
+				return sl;
+#endif
 	}
 	return NULL;
 }
@@ -564,7 +584,15 @@ static ssize_t w1_master_attribute_show_check_color(struct device *dev, struct d
 {
 	return sprintf(buf, "%d\n", color);
 }
-
+#ifdef CONFIG_W1_SN
+static ssize_t w1_master_attribute_show_check_sn(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if (g_sn[0])
+		return snprintf(buf, 15, "%s\n", g_sn);
+	else
+		return snprintf(buf, 1, "%s", "");
+}
+#endif
 #define W1_MASTER_ATTR_RO(_name, _mode)				\
 	struct device_attribute w1_master_attribute_##_name =	\
 		__ATTR(w1_master_##_name, _mode,		\
@@ -593,6 +621,9 @@ static W1_MASTER_ATTR_RO(cf, S_IRUGO);
 #endif
 static W1_MASTER_ATTR_RO(check_id, S_IRUGO);
 static W1_MASTER_ATTR_RO(check_color, S_IRUGO);
+#ifdef CONFIG_W1_SN
+static W1_MASTER_ATTR_RO(check_sn, S_IRUGO);
+#endif
 
 static struct attribute *w1_master_default_attrs[] = {
 	&w1_master_attribute_name.attr,
@@ -612,6 +643,9 @@ static struct attribute *w1_master_default_attrs[] = {
 #endif
 	&w1_master_attribute_check_id.attr,
 	&w1_master_attribute_check_color.attr,
+#ifdef CONFIG_W1_SN
+	&w1_master_attribute_check_sn.attr,
+#endif
 	NULL
 };
 

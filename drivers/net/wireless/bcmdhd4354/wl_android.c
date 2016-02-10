@@ -114,7 +114,12 @@
 #define CMD_TEST_SET_TX_POWER		"TEST_SET_TX_POWER"
 #define CMD_TEST_GET_TX_POWER		"TEST_GET_TX_POWER"
 #endif /* TEST_TX_POWER_CONTROL */
+#ifdef TX_POWER_CONTROL_CALLING
+#define CMD_SET_TX_POWER_CALLING		"SET_TX_POWER_CALLING"
+#endif /* TX_POWER_CONTROL_CALLING */
+#ifdef SARLIMIT_TX_CONTROL_NVRAM
 #define CMD_SARLIMIT_TX_CONTROL		"SET_TX_POWER_CALLING"
+#endif /* SARLIMIT_TX_CONTROL_NVRAM */
 #endif /* CUSTOMER_HW4 */
 #ifdef WLFBT
 #define CMD_GET_FTKEY      "GET_FTKEY"
@@ -213,6 +218,8 @@ typedef struct android_wifi_af_params {
 #define CMD_SET_RMC_TXRATE			"SETRMCTXRATE"
 #define CMD_SET_RMC_ACTPERIOD		"SETRMCACTIONPERIOD"
 #define CMD_SET_RMC_IDLEPERIOD		"SETRMCIDLEPERIOD"
+#define CMD_SET_RMC_LEADER			"SETRMCLEADER"
+#define CMD_SET_RMC_EVENT			"SETRMCEVENT"
 
 #define CMD_SET_SCSCAN		"SETSINGLEANT"
 #define CMD_GET_SCSCAN		"GETSINGLEANT"
@@ -225,6 +232,7 @@ typedef struct android_wifi_af_params {
 #define CMD_GET_IBSS_PEER_INFO_ALL	"GETIBSSPEERINFOALL"
 #define CMD_SETIBSSROUTETABLE		"SETIBSSROUTETABLE"
 #define CMD_SETIBSSAMPDU			"SETIBSSAMPDU"
+#define CMD_SETIBSSANTENNAMODE		"SETIBSSANTENNAMODE"
 #endif /* WLAIBSS */
 
 #define CMD_ROAM_OFFLOAD			"SETROAMOFFLOAD"
@@ -2139,6 +2147,55 @@ wl_android_rmc_enable(struct net_device *net, int rmc_enable)
 	return err;
 }
 
+static int
+wl_android_rmc_set_leader(struct net_device *dev, const char* straddr)
+{
+	int error  = BCME_OK;
+	char smbuf[WLC_IOCTL_SMLEN];
+	wl_rmc_entry_t rmc_entry;
+	DHD_INFO(("%s: Set new RMC leader %s\n", __FUNCTION__, straddr));
+
+	memset(&rmc_entry, 0, sizeof(wl_rmc_entry_t));
+	if (!bcm_ether_atoe(straddr, &rmc_entry.addr)) {
+		if (strlen(straddr) == 1 && bcm_atoi(straddr) == 0) {
+			DHD_INFO(("%s: Set auto leader selection mode\n", __FUNCTION__));
+			memset(&rmc_entry, 0, sizeof(wl_rmc_entry_t));
+		} else {
+			DHD_ERROR(("%s: No valid mac address provided\n",
+				__FUNCTION__));
+			return BCME_ERROR;
+		}
+	}
+
+	error = wldev_iovar_setbuf(dev, "rmc_ar", &rmc_entry, sizeof(wl_rmc_entry_t),
+		smbuf, sizeof(smbuf), NULL);
+
+	if (error != BCME_OK) {
+		DHD_ERROR(("%s: Unable to set RMC leader, error = %d\n",
+			__FUNCTION__, error));
+	}
+
+	return error;
+}
+
+static int wl_android_set_rmc_event(struct net_device *dev, char *command, int total_len)
+{
+	int err = 0;
+	int pid = 0;
+
+	if (sscanf(command, CMD_SET_RMC_EVENT " %d", &pid) <= 0) {
+		WL_ERR(("Failed to get Parameter from : %s\n", command));
+		return -1;
+	}
+
+	/* set pid, and if the event was happened, let's send a notification through netlink */
+	wl_cfg80211_set_rmc_pid(pid);
+
+	WL_DBG(("RMC pid=%d\n", pid));
+
+	return err;
+}
+
 int wl_android_get_singlecore_scan(struct net_device *dev, char *command, int total_len)
 {
 	int error = 0;
@@ -2176,7 +2233,7 @@ int wl_android_set_singlecore_scan(struct net_device *dev, char *command, int to
 
 	return error;
 }
-#ifdef TEST_TX_POWER_CONTROL
+#if defined(TEST_TX_POWER_CONTROL) || defined(TX_POWER_CONTROL_CALLING)
 static int
 wl_android_set_tx_power(struct net_device *dev, const char* string_num)
 {
@@ -2196,6 +2253,12 @@ wl_android_set_tx_power(struct net_device *dev, const char* string_num)
 	else
 		type = NL80211_TX_POWER_FIXED;
 
+#ifdef TX_POWER_CONTROL_CALLING
+	if (dbm == 0) {
+		dbm = TX_CALLING_POWER;
+	}
+#endif
+
 	err = wl_set_tx_power(dev, type, dbm);
 	if (unlikely(err)) {
 		DHD_ERROR(("%s: error (%d)\n", __FUNCTION__, err));
@@ -2204,7 +2267,9 @@ wl_android_set_tx_power(struct net_device *dev, const char* string_num)
 
 	return 1;
 }
+#endif /* TEST_TX_POWER_CONTROL || TX_POWER_CONTROL_CALLING */
 
+#ifdef TEST_TX_POWER_CONTROL
 static int
 wl_android_get_tx_power(struct net_device *dev, char *command, int total_len)
 {
@@ -2227,6 +2292,7 @@ wl_android_get_tx_power(struct net_device *dev, char *command, int total_len)
 }
 #endif /* TEST_TX_POWER_CONTROL */
 
+#ifdef SARLIMIT_TX_CONTROL_NVRAM
 static int
 wl_android_set_sarlimit_txctrl(struct net_device *dev, const char* string_num)
 {
@@ -2254,6 +2320,8 @@ wl_android_set_sarlimit_txctrl(struct net_device *dev, const char* string_num)
 	}
 	return 1;
 }
+#endif /* SARLIMIT_TX_CONTROL_NVRAM */
+
 #endif /* CUSTOMER_HW4 */
 
 int wl_android_set_roam_mode(struct net_device *dev, char *command, int total_len)
@@ -2672,7 +2740,6 @@ resume:
 	return ret;
 }
 
-#ifdef WLAIBSS
 #define NETLINK_OXYGEN     30
 #define AIBSS_BEACON_TIMEOUT	10
 
@@ -2722,7 +2789,7 @@ static void wl_netlink_deinit(void)
 }
 
 s32
-wl_netlink_send_msg(int pid, int seq, void *data, size_t size)
+wl_netlink_send_msg(int pid, int type, int seq, void *data, size_t size)
 {
 	struct sk_buff *skb = NULL;
 	struct nlmsghdr *nlh = NULL;
@@ -2749,6 +2816,7 @@ wl_netlink_send_msg(int pid, int seq, void *data, size_t size)
 
 	memcpy(nlmsg_data(nlh), data, size);
 	nlh->nlmsg_seq = seq;
+	nlh->nlmsg_type = type;
 
 	/* netlink_unicast() takes ownership of the skb and frees it itself. */
 	ret = netlink_unicast(nl_sk, skb, pid, 0);
@@ -2758,6 +2826,7 @@ nlmsg_failure:
 	return ret;
 }
 
+#ifdef WLAIBSS
 static int wl_android_set_ibss_txfail_event(struct net_device *dev, char *command, int total_len)
 {
 	int err = 0;
@@ -2773,6 +2842,10 @@ static int wl_android_set_ibss_txfail_event(struct net_device *dev, char *comman
 
 	/* set pid, and if the event was happened, let's send a notification through netlink */
 	wl_cfg80211_set_txfail_pid(pid);
+#ifdef CUSTOMER_HW4
+	/* using same pid for RMC, AIBSS shares same pid with RMC and it is set once */
+	wl_cfg80211_set_rmc_pid(pid);
+#endif
 
 	/* If retry value is 0, it disables the functionality for TX Fail. */
 	if (retry > 0) {
@@ -3003,6 +3076,42 @@ int wl_android_set_ibss_ampdu(struct net_device *dev, char *command, int total_l
 
 	err = wldev_iovar_setbuf(dev, "ampdu_tid_mode", (void *) &control,
 		sizeof(struct ampdu_tid_control_mode), smbuf, WLC_IOCTL_SMLEN, NULL);
+	return ((err == 0)?total_len:err);
+}
+
+int wl_android_set_ibss_antenna(struct net_device *dev, char *command, int total_len)
+{
+	char *pcmd = command;
+	char *str = NULL;
+	int txchain, rxchain;
+	int err = 0;
+
+	WL_DBG(("set ibss antenna:%s\n", command));
+
+	/* acquire parameters */
+	/* drop command */
+	str = bcmstrtok(&pcmd, " ", NULL);
+
+	/* TX chain */
+	str = bcmstrtok(&pcmd, " ", NULL);
+	if (!str) {
+		WL_ERR(("Invalid parameter : %s\n", pcmd));
+		return -EINVAL;
+	}
+	txchain = bcm_atoi(str);
+
+	/* RX chain */
+	str = bcmstrtok(&pcmd, " ", NULL);
+	if (!str) {
+		WL_ERR(("Invalid parameter : %s\n", pcmd));
+		return -EINVAL;
+	}
+	rxchain = bcm_atoi(str);
+
+	err = wldev_iovar_setint(dev, "txchain", txchain);
+	if (err != 0)
+		return err;
+	err = wldev_iovar_setint(dev, "rxchain", rxchain);
 	return ((err == 0)?total_len:err);
 }
 #endif /* WLAIBSS */
@@ -3495,6 +3604,13 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 		acktimeout *= 1000;
 		bytes_written = wldev_iovar_setint(net, "rmc_acktmo", acktimeout);
 	}
+	else if (strnicmp(command, CMD_SET_RMC_LEADER, strlen(CMD_SET_RMC_LEADER)) == 0) {
+		int skip = strlen(CMD_SET_RMC_LEADER) + 1;
+		bytes_written = wl_android_rmc_set_leader(net, (const char*)command+skip);
+	}
+	else if (strnicmp(command, CMD_SET_RMC_EVENT,
+		strlen(CMD_SET_RMC_EVENT)) == 0)
+		bytes_written = wl_android_set_rmc_event(net, command, priv_cmd.total_len);
 	else if (strnicmp(command, CMD_GET_SCSCAN, strlen(CMD_GET_SCSCAN)) == 0) {
 		bytes_written = wl_android_get_singlecore_scan(net, command, priv_cmd.total_len);
 	}
@@ -3512,11 +3628,20 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 		wl_android_get_tx_power(net, command, priv_cmd.total_len);
 	}
 #endif /* TEST_TX_POWER_CONTROL */
+#ifdef TX_POWER_CONTROL_CALLING
+	else if (strnicmp(command, CMD_SET_TX_POWER_CALLING,
+		strlen(CMD_SET_TX_POWER_CALLING)) == 0) {
+		int skip = strlen(CMD_SET_TX_POWER_CALLING) + 1;
+		wl_android_set_tx_power(net, (const char*)command+skip);
+	}
+#endif /* TX_POWER_CONTROL_CALLING */
+#ifdef SARLIMIT_TX_CONTROL_NVRAM
 	else if (strnicmp(command, CMD_SARLIMIT_TX_CONTROL,
 		strlen(CMD_SARLIMIT_TX_CONTROL)) == 0) {
 		int skip = strlen(CMD_SARLIMIT_TX_CONTROL) + 1;
 		wl_android_set_sarlimit_txctrl(net, (const char*)command+skip);
 	}
+#endif /* SARLIMIT_TX_CONTROL_NVRAM */
 #endif /* CUSTOMER_HW4 */
 	else if (strnicmp(command, CMD_HAPD_MAC_FILTER, strlen(CMD_HAPD_MAC_FILTER)) == 0) {
 		int skip = strlen(CMD_HAPD_MAC_FILTER) + 1;
@@ -3552,6 +3677,8 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 			priv_cmd.total_len);
 	else if (strnicmp(command, CMD_SETIBSSAMPDU, strlen(CMD_SETIBSSAMPDU)) == 0)
 		bytes_written = wl_android_set_ibss_ampdu(net, command, priv_cmd.total_len);
+	else if (strnicmp(command, CMD_SETIBSSANTENNAMODE, strlen(CMD_SETIBSSANTENNAMODE)) == 0)
+		bytes_written = wl_android_set_ibss_antenna(net, command, priv_cmd.total_len);
 #endif /* WLAIBSS */
 	else if (strnicmp(command, CMD_KEEP_ALIVE, strlen(CMD_KEEP_ALIVE)) == 0) {
 		int skip = strlen(CMD_KEEP_ALIVE) + 1;
@@ -3619,9 +3746,7 @@ int wl_android_init(void)
 #ifdef WL_GENL
 	wl_genl_init();
 #endif
-#ifdef WLAIBSS
 	wl_netlink_init();
-#endif /* WLAIBSS */
 
 	return ret;
 }
@@ -3634,9 +3759,7 @@ int wl_android_exit(void)
 #ifdef WL_GENL
 	wl_genl_deinit();
 #endif /* WL_GENL */
-#ifdef WLAIBSS
 	wl_netlink_deinit();
-#endif /* WLAIBSS */
 
 	list_for_each_entry_safe(cur, q, &miracast_resume_list, list) {
 		list_del(&cur->list);

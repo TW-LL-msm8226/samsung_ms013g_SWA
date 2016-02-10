@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.c 470093 2014-04-13 05:05:57Z $
+ * $Id: wl_cfgp2p.c 480251 2014-05-23 08:03:02Z $
  *
  */
 #include <typedefs.h>
@@ -1697,16 +1697,17 @@ wl_cfgp2p_cancel_listen(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #endif /* NOT_YET */
 	if (timer_pending(&cfg->p2p->listen_timer)) {
 		del_timer_sync(&cfg->p2p->listen_timer);
-		if (notify)
-			if (ndev && ndev->ieee80211_ptr) {
+		if (notify) {
 #if defined(WL_CFG80211_P2P_DEV_IF)
+			if (wdev)
 				cfg80211_remain_on_channel_expired(wdev, cfg->last_roc_id,
 					&cfg->remain_on_chan, GFP_KERNEL);
 #else
+			if (ndev && ndev->ieee80211_ptr)
 				cfg80211_remain_on_channel_expired(ndev, cfg->last_roc_id,
 					&cfg->remain_on_chan, cfg->remain_on_chan_type, GFP_KERNEL);
 #endif /* WL_CFG80211_P2P_DEV_IF */
-			}
+		}
 	}
 	return 0;
 }

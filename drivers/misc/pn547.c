@@ -321,9 +321,9 @@ static long pn547_dev_ioctl(struct file *filp,
 		if (arg == 2) {
 			/* power on with firmware download (requires hw reset)
 			 */
-	#ifdef CONFIG_SEC_MILLETWIFI_COMMON
+#if defined(CONFIG_SEC_MILLETWIFI_COMMON) || defined(CONFIG_SEC_RUBENSLTE_COMMON) || defined(CONFIG_SEC_RUBENSWIFI_COMMON)
 			gpio_direction_output(pn547_dev->ven_gpio, 1);
-	#endif
+#endif
 			gpio_set_value_cansleep(pn547_dev->ven_gpio, 1);
 			gpio_set_value(pn547_dev->firm_gpio, 1);
 			usleep_range(10000, 10050);
@@ -343,11 +343,12 @@ static long pn547_dev_ioctl(struct file *filp,
 			if (pn547_dev->conf_gpio)
 				pn547_dev->conf_gpio();
 			gpio_set_value(pn547_dev->firm_gpio, 0);
-	#ifdef CONFIG_SEC_MILLETWIFI_COMMON
+#if defined(CONFIG_SEC_MILLETWIFI_COMMON) || defined(CONFIG_SEC_RUBENSLTE_COMMON) || defined(CONFIG_SEC_RUBENSWIFI_COMMON)
 			gpio_direction_output(pn547_dev->ven_gpio, 1);
-	#endif
+#endif
 			gpio_set_value_cansleep(pn547_dev->ven_gpio, 1);
 			usleep_range(10000, 10050);
+			
 			if (atomic_read(&pn547_dev->irq_enabled) == 0) {
 				atomic_set(&pn547_dev->irq_enabled, 1);
 				enable_irq(pn547_dev->client->irq);
@@ -365,9 +366,9 @@ static long pn547_dev_ioctl(struct file *filp,
 			pr_info("%s power off, irq=%d\n", __func__,
 				atomic_read(&pn547_dev->irq_enabled));
 			gpio_set_value(pn547_dev->firm_gpio, 0);
-	#ifdef CONFIG_SEC_MILLETWIFI_COMMON
+#if defined(CONFIG_SEC_MILLETWIFI_COMMON) || defined(CONFIG_SEC_RUBENSLTE_COMMON) || defined(CONFIG_SEC_RUBENSWIFI_COMMON)
 			gpio_direction_output(pn547_dev->ven_gpio, 0);
-	#endif
+#endif
 			gpio_set_value_cansleep(pn547_dev->ven_gpio, 0);
 			usleep_range(10000, 10050);
 		} else if (arg == 3) {
@@ -600,6 +601,15 @@ static int pn547_probe(struct i2c_client *client,
 	}
 	INIT_WORK(&pn547_dev->work_nfc_clock, nfc_work_func_clock);
 #endif
+
+#ifdef CONFIG_MACH_CHAGALL_KDI
+	if(client->irq <=0)	
+	{
+		client->irq = gpio_to_irq(pn547_dev->irq_gpio);
+		pr_info("%s : requesting IRQ %d\n", __func__, client->irq);
+	}
+#endif
+
 	ret = request_irq(client->irq, pn547_dev_irq_handler,
 			  IRQF_TRIGGER_RISING, "pn547", pn547_dev);
 	if (ret) {

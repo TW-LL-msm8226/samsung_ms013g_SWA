@@ -169,6 +169,18 @@ config TOUCHSCREEN_ATMEL_MXT
 	  To compile this driver as a module, choose M here: the
 	  module will be called atmel_mxt_ts.
 
+config TOUCHSCREEN_ATMEL_MAXTOUCH_TS
+	tristate "Atmel Maxtouch Touchscreen Family"
+	depends on I2C
+	help
+	  Say Y here if you have Atmel MaXTouch Touchscreen
+	  using i2c connected to your system.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called atmel_maxtouch_ts.
+
 config TOUCHSCREEN_AUO_PIXCIR
 	tristate "AUO in-cell touchscreen using Pixcir ICs"
 	depends on I2C
@@ -1138,9 +1150,12 @@ source "drivers/input/touchscreen/gt9xx/Kconfig"
 source "drivers/input/touchscreen/synaptics/Kconfig"
 source "drivers/input/touchscreen/imagis/Kconfig"
 source "drivers/input/touchscreen/synaptics_s5000/Kconfig"
+source "drivers/input/touchscreen/synaptics_patek/Kconfig"
 source "drivers/input/touchscreen/cyttsp5/Kconfig"
 source "drivers/input/touchscreen/cyttsp4/Kconfig"
 source "drivers/input/touchscreen/wacom_hl/Kconfig"
 source "drivers/input/touchscreen/melfas_mms136/Kconfig"
 source "drivers/input/touchscreen/stm_fts/Kconfig"
+source "drivers/input/touchscreen/stm_s/Kconfig"
+source "drivers/input/touchscreen/synaptics_jsglte/Kconfig"
 endif

@@ -64,11 +64,12 @@
 #include <linux/proc_avc.h>
 #endif
 
-#if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) || defined(CONFIG_MACH_S3VE3G_EUR) || defined (CONFIG_MACH_VICTOR3GDSDTV_LTN) || \
-    defined(CONFIG_SEC_AFYON_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) || defined(CONFIG_SEC_BERLUTI_PROJECT) || \
-    defined(CONFIG_SEC_GNOTE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_DEGAS_PROJECT) || \
-	defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) || defined(CONFIG_SEC_MS01_PROJECT)
+#ifdef CONFIG_SEC_THERMISTOR
 #include <mach/msm8x26-thermistor.h>
+#endif
+
+#ifdef CONFIG_LEDS_MAX77804K
+#include <linux/leds-max77804k.h>
 #endif
 
 #ifdef CONFIG_SENSORS_SSP
@@ -103,6 +104,24 @@ static int __init sensor_hub_init(void)
 	return 0;
 }
 #endif /* CONFIG_SENSORS_SSP */
+
+#ifdef CONFIG_LEDS_MAX77804K
+struct max77804k_led_platform_data max77804k_led_pdata = {
+	.num_leds = 2,
+
+	.leds[0].name = "leds-sec1",
+	.leds[0].id = MAX77804K_FLASH_LED_1,
+	.leds[0].timer = MAX77804K_FLASH_TIME_1000MS,
+	.leds[0].timer_mode = MAX77804K_TIMER_MODE_MAX_TIMER,
+	.leds[0].cntrl_mode = MAX77804K_LED_CTRL_BY_FLASHSTB,
+	.leds[0].brightness = 0x3D,
+
+	.leds[1].name = "torch-sec1",
+	.leds[1].id = MAX77804K_TORCH_LED_1,
+	.leds[1].cntrl_mode = MAX77804K_LED_CTRL_BY_FLASHSTB,
+	.leds[1].brightness = 0x06,
+};
+#endif
 
 static struct memtype_reserve msm8226_reserve_table[] __initdata = {
 	[MEMTYPE_SMI] = {
@@ -197,14 +216,9 @@ void __init msm8226_add_drivers(void)
 	else
 		msm_clock_init(&msm8226_clock_init_data);
 	tsens_tm_init_driver();
-#if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) || defined(CONFIG_MACH_S3VE3G_EUR)  || defined (CONFIG_MACH_VICTOR3GDSDTV_LTN)  || \
-    defined(CONFIG_SEC_AFYON_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) || defined(CONFIG_SEC_BERLUTI_PROJECT) || \
-    defined(CONFIG_SEC_HESTIA_PROJECT) || defined(CONFIG_SEC_GNOTE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || \
-	defined(CONFIG_SEC_DEGAS_PROJECT) || defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) || \
-	defined(CONFIG_SEC_MS01_PROJECT)
+
 #ifdef CONFIG_SEC_THERMISTOR
 	platform_device_register(&sec_device_thermistor);
-#endif
 #endif
 	msm_thermal_device_init();
 }
@@ -231,7 +245,8 @@ static void samsung_sys_class_init(void)
 	defined(CONFIG_SEC_S3VE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) || \
 	defined(CONFIG_SEC_DEGAS_PROJECT) || defined(CONFIG_SEC_HESTIA_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) || \
 	defined(CONFIG_SEC_GNOTE_PROJECT) || defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT) || \
-	defined(CONFIG_SEC_VASTA_PROJECT) || defined(CONFIG_SEC_VICTOR3GDSDTV_PROJECT)
+	defined(CONFIG_SEC_VASTA_PROJECT) || defined(CONFIG_SEC_VICTOR3GDSDTV_PROJECT) || defined(CONFIG_SEC_RUBENS_PROJECT) || \
+	defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT) || defined(CONFIG_SEC_A5_PROJECT)
 /* Dummy init function for models that use QUALCOMM PMIC PM8226 charger*/
 void __init samsung_init_battery(void)
 {

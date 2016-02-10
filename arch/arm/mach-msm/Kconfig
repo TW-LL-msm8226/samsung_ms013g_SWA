@@ -732,12 +732,60 @@ config SEC_MATISSE_PROJECT
          Common flag for all the Matisse Models and variants. Please use this flag for all
 	 the features common in all the Matisse Variants(3G,LTE,Wifi & Carrier).
 
+config SEC_RUBENS_PROJECT
+        bool "RUBENS Projects"
+        default n
+        help
+         Common flag for all the Rubens Models and variants. Please use this flag for all
+         the features common in all the Rubens Variants(3G,LTE,Wifi & Carrier).
+
+config MACH_VASTALTE_CHN_CMCC_DUOS
+        bool "VASTALTE_CHN_CMCC Projects"
+        default n
+        help
+         Common flag for all the vastalte chn-cmcc Models and variants. Please use this flag for all
+         the features common in all the vastalte chn cmcc Variants.
+
+config VASTALTE_CHN_CMCC_DUOS_COMMON
+        bool "VASTA LTE CHN_CMCC Common"
+        default n
+        help
+         MSM8926 MODEL VSAT C TDC Varaints common flag. Specific changes for differentiating
+         between variants must be added in the MACH specific flag.
+
+config SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT
+        bool "VASTALTE_CHN_CMCC Projects"
+        default n
+        help
+         Common flag for all the vastalte tdc Models and variants. Please use this flag for all
+         the features common in all the vastalte chn-cmcc Variants.
+
 config SEC_ATLANTIC_PROJECT
 	bool "ATLANTIC Projects"
         default n
         help
          Common flag for all the Atlantic Models and variants. Please use this flag for all
 	 the features common in all the Atlantic Variants(3G,LTE,Wifi & Carrier).
+
+config SEC_A5_PROJECT
+	bool "A5 Projects"
+        default n
+        help
+         Common flag for all the A5 Models and variants. Please use this flag for all
+	 the features common in all the A5 Variants(3G,LTE,Wifi & Carrier).
+
+config MACH_HESTIALTE_ATT
+	bool "HESTIA ATT Projects"
+        default n
+        help
+         Common flag for all the HESTIA Models and variants. Please use this flag for ATT Crrier changes.
+
+config MACH_HESTIALTE_EUR
+	bool "HESTIA Projects"
+        default n
+        help
+         Common flag for all the HESTIA Models and variants. Please use this flag for all
+	 the features common in all the HESTIA Variants(3G,LTE,Wifi & Carrier).
 
 config SEC_HESTIA_PROJECT
 	bool "HESTIA Projects"
@@ -779,6 +827,20 @@ config SEC_DEGASLTE_COMMON
         default n
         help
          MSM8226 MODEL DEGAS LTE Varaints common flag. Specific changes for differentiating
+         between variants must be added in the MACH specific flag.
+
+config SEC_RUBENSLTE_COMMON
+        bool "RUBENS LTE Common"
+        default n
+        help
+         MSM8226 MODEL RUBENS LTE Varaints common flag. Specific changes for differentiating
+         between variants must be added in the MACH specific flag.
+
+config SEC_RUBENSWIFI_COMMON
+        bool "RUBENS WIFI Common"
+        default n
+        help
+         MSM8226 MODEL RUBENS WIFI Varaints common flag. Specific changes for differentiating
          between variants must be added in the MACH specific flag.
 
 config SEC_MILLETWIFI_COMMON
@@ -830,6 +892,13 @@ config SEC_ATLANTICLTE_COMMON
          Common flag for all Atlantic LTE Models and variants. Please use this flag for all
 	 the features common in all the Atlantic LTE Variants(EUR, ATT, VZW etc., different carriers).
 
+config SEC_A5LTE_COMMON
+	bool "A5 LTE Common"
+        default n
+        help
+         Common flag for all A5 LTE Models and variants. Please use this flag for all
+	 the features common in all the A5 LTE Variants(EUR, ATT, VZW etc., different carriers).
+
 config SEC_HESTIALTE_COMMON
 	bool "HESTIA LTE Common"
         default n
@@ -850,6 +919,13 @@ config SEC_MEGA23G_COMMON
         help
          Common flag for all MEGA2 3G Models and variants. Please use this flag for all
 	 the features common in all the MEGA2 3G Variants(EUR, ATT, VZW etc., different carriers).
+
+config SEC_MEGA2LTE_COMMON
+	bool "MEGA2 LTE Common"
+        default n
+        help
+         Common flag for all MEGA2 LTE Models and variants. Please use this flag for all
+	 the features common in all the MEGA2 LTEariants(KOR etc., different carriers).
 
 config SEC_VICTOR_PROJECT
 	bool "VICTOR Projects"
@@ -1018,11 +1094,39 @@ config MACH_MILLETLTE_KOR
          MSM8226 MODEL MILLET LTE KOR TAB SM T-335 Specific changes for differentiating
          it with the other models on the same MSM8x26 chipset.
 
+config MACH_RUBENSLTE_OPEN
+        bool "RUBENS LTE OPEN TAB"
+        default n
+        help
+         MSM8226 MODEL RUBENS LTE OPEN TAB SM T-365 Specific changes for differentiating
+         it with the other models on the same MSM8x26 chipset.
+
+config MACH_RUBENSWIFI_OPEN
+        bool "RUBENS WIFI OPEN TAB"
+        default n
+        help
+         MSM8226 MODEL RUBENS WIFI OPEN TAB SM T-360 Specific changes for differentiating
+         it with the other models on the same MSM8x26 chipset.
+
 config MACH_DEGASLTE_SPR
         bool "DEGAS LTE SPR TAB"
         default n
         help
          MSM8226 MODEL DEGAS LTE SPR TAB Specific changes for differentiating
+         it with the other models on the same MSM8x26 chipset.
+
+config MACH_DEGASLTE_VZW
+        bool "DEGAS LTE VZW TAB"
+        default n
+        help
+         MSM8226 MODEL DEGAS LTE VZW TAB Specific changes for differentiating
+         it with the other models on the same MSM8x26 chipset.
+
+config MACH_DEGASLTE_SBM
+        bool "DEGAS LTE SBM TAB"
+        default n
+        help
+         MSM8226 MODEL DEGAS LTE SBM TAB Specific changes for differentiating
          it with the other models on the same MSM8x26 chipset.
 
 config MACH_MATISSE3G_OPEN
@@ -1084,11 +1188,11 @@ config MACH_ATLANTIC3GEUR_OPEN
         help
          MSM8228 Model Atlantic 3G Euro Open Specific flag.
 
-config MACH_HESITALTE_EUR
-	bool "HESTIA EUR LTE"
+config MACH_A5LTE_JPN_KDI
+	bool "A5 LTE JPN KDI"
         default n
         help
-         MSM8928 Model Atlantic LTE ATT Specific flag.
+         MSM8928 Model A5 LTE JPN KDI Specific flag.
 
 config MACH_BERLUTI3G_EUR
 	bool "BERLUTI 3G EUR TAB"
@@ -1138,11 +1242,11 @@ config MACH_MS01_EUR_3G
         help
           Support for the Samsung MS01 EUR 3G device
 
-config MACH_MS01_EUR_LTE
+config MACH_MS01_KOR_LTE
 		depends on SEC_MS01_PROJECT
-        bool "MSM8926 MS01 EUR LTE"
+        bool "MSM8926 MS01 KOR LTE"
         help
-          Support for the Samsung MS01 EUR LTE device
+          Support for the Samsung MS01 KOR LTE device
 
 config MACH_VICTOR3GDSDTV_LTN
 	bool "VICTOR3GDSDTV LTN"
@@ -1199,6 +1303,12 @@ config MACH_MEGA23GEUR_OPEN
         default n
         help
          MSM8228 Model MEGA2 3G Euro Open Specific flag.
+
+config MACH_MEGA2LTE_KTT
+	bool "MEGA2LTE KOR"
+        default n
+        help
+         MSM8228 Model MEGA2 LTE KOR Specific flag.
 
 config MACH_GNOTELTEDS_OPEN
 	bool "Grandnote LTE DS"
@@ -1768,6 +1878,12 @@ config MACH_SLTE_KDI
         help
           Support for Samsung SLTE_KDI device.
 
+config MACH_SLTE_CAN
+        default n
+        bool "Samsung model SLTE_CAN"
+        help
+          Support for Samsung SLTE_CAN device.
+
 config SEC_K_PROJECT
 	depends on ARCH_MSM8974PRO
         default n
@@ -2193,6 +2309,12 @@ config SEC_JS_PROJECT
 	help
 	  Support for Samsung JS project.
 
+config SEC_JSZT_PROJECT
+	default n
+	bool "Samsung JSZT project"
+	help
+	  Support for Samsung JSZT project.
+
 config MACH_H
 	default n
 	bool "Samsung model H"
@@ -2219,6 +2341,10 @@ config MACH_HLTE_CHN_TDOPEN
 	select SEC_H_PROJECT
 	help
 	  Support for Samsung HLTE_CHN_TDOPEN device.
+	  
+config MACH_JSGLTE_CHN_CMCC
+	default n
+	bool "Samsung model JSGLTE_CHN_CMCC"
 
 config SEC_N2_PROJECT
 	default n
@@ -2343,6 +2469,24 @@ config MACH_CHAGALL_VZW
 	help
 	  Support for Samsung CHAGALL_VZW device.
 
+config MACH_CHAGALL_USC
+	default n
+	bool "Samsung model CHAGALL_USC"
+	help
+	  Support for Samsung CHAGALL_USC device.
+
+config MACH_CHAGALL_DCM
+	default n
+	bool "Samsung model CHAGALL_DCM"
+	help
+	  Support for Samsung CHAGALL_DCM device.
+
+config MACH_CHAGALL_KDI
+	default n
+	bool "Samsung model CHAGALL_KDI"
+	help
+	  Support for Samsung CHAGALL_KDI device.
+
 config SEC_KLIMT_PROJECT
 	default n
 	bool "Samsung KLIMT project"
@@ -2367,6 +2511,12 @@ config MACH_KLIMT_VZW
 	bool "Samsung model KLIMT_VZW"
 	help
 	  Support for Samsung KLIMT_VZW device.
+
+config MACH_KLIMT_LTE_DCM
+	default n
+	bool "Samsung model KLIMT_DCM"
+	help
+	  Support for Samsung KLIMT_DCM device.
 
 config SEC_PICASSO_PROJECT
 	default n
@@ -2465,6 +2615,13 @@ config MACH_JS01LTEDCM
 	select SEC_JS_PROJECT
 	help
 	  Support for Samsung JS01LTEDCM device.
+
+config MACH_JS01LTEZT
+	default n
+	bool "Samsung model JS01LTEZT"
+	select SEC_JSZT_PROJECT
+	help
+	  Support for Samsung JS01LTEZT device.
 
 config MACH_HLTESKT
 	default n
@@ -2613,6 +2770,13 @@ config MACH_KACTIVELTE_SKT
 	select SEC_KACTIVE_PROJECT
 	help
 	  Support for Samsung KACTIVELTE_SKT device.
+
+config MACH_KACTIVELTE_DCM
+	default n
+	bool "Samsung model KACTIVELTE_DCM"
+	select SEC_KACTIVE_PROJECT
+	help
+	  Support for Samsung KACTIVELTE_DCM device.
 
 config SEC_KSPORTS_PROJECT
 	depends on ARCH_MSM8974PRO
@@ -2873,6 +3037,15 @@ choice
 		  their output to the serial port on MSM 8226 devices.
 endchoice
 
+config BLSP1_UART5_ENABLE
+		bool "Kernel low-level debugging messages via MSM 8226 UART5"
+		depends on DEBUG_MSM8226_UART
+		default n
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to the MSM serial port on MSM 8226 devices at
+		  BLSP1 UART5 instead of Qcomm Default BLSP1 UART3.
+
 choice
 	prompt "Default Timer"
 	default MSM7X00A_USE_GP_TIMER
@@ -3100,20 +3273,6 @@ config MSM_PCIE
 	  Enables the PCIe functionality by configures PCIe core on
 	  MSM chipset and by enabling the ARM PCI framework extension.
 
-config MSM_RPC_SDIO_XPRT
-	depends on MSM_SDIO_AL
-	default y
-	bool "MSM SDIO XPRT Layer"
-	help
-	  SDIO Transport Layer for RPC Rouer
-
-config MSM_RPC_SDIO_DEBUG
-	depends on MSM_RPC_SDIO_XPRT
-	default y
-	bool "MSM SDIO XPRT debug support"
-	help
-	  Support for debugging SDIO XPRT
-
 config MSM_SMD_DEBUG
 	depends on MSM_SMD
 	default y
@@ -3121,21 +3280,6 @@ config MSM_SMD_DEBUG
 	help
 	  Support for debugging the SMD for communication
 	  between the ARM9 and ARM11
-
-config MSM_SDIO_AL
-	depends on ((ARCH_MSM7X30 || MACH_MSM8X60_FUSN_FFA || MACH_TYPE_MSM8X60_FUSION) && HAS_WAKELOCK)
-	default y
-	tristate "SDIO-Abstraction-Layer"
-	help
-	  Support MSM<->MDM Communication over SDIO bus.
-	  MDM SDIO-Client should have pipes support.
-
-config MSM_SDIO_DMUX
-	bool "SDIO Data Mux Driver"
-	depends on MSM_SDIO_AL
-	default n
-	help
-	  Support Muxed Data Channels over SDIO interface.
 
 config MSM_BAM_DMUX
 	bool "BAM Data Mux Driver"
@@ -3217,16 +3361,6 @@ config MSM_SMD_NMEA
 
 	  If in doubt, say yes.
 
-config MSM_SDIO_TTY
-	bool "SDIO TTY Driver"
-	depends on MSM_SDIO_AL
-	default n
-	help
-	  Provides a TTY driver SDIO TTY
-	  This driver can be used by user space
-	  applications for passing data through the
-	  SDIO interface.
-
 config MSM_SMD_TTY
 	bool "SMD TTY Driver"
 	depends on MSM_SMD
@@ -3254,13 +3388,6 @@ config MSM_SMD_PKT
 
 	  If in doubt, say yes.
 
-config MSM_SDIO_CMUX
-	bool "SDIO CMUX Driver"
-	depends on MSM_SDIO_AL
-	default n
-	help
-	  Provides a Muxed port interface over SDIO QMI
-
 config MSM_DSPS
 	bool "Sensors DSPS driver"
 	depends on (MSM_PIL && (ARCH_MSM8X60 || ARCH_MSM8960))
@@ -3272,13 +3399,6 @@ config MSM_DSPS
 	  themself.
 	  The number of clocks and their name may vary between targets.
 	  It also triggers the PIL to load the DSPS firmware.
-
-config MSM_SDIO_CTL
-	bool "SDIO CTL Driver"
-	depends on MSM_SDIO_CMUX
-	default n
-	help
-	  Provides a binary SDIO control port interface.
 
 config MSM_ONCRPCROUTER
 	depends on MSM_SMD
@@ -3411,31 +3531,6 @@ config MSM_RPCSERVER_HANDSET
 	help
 	  Support for receiving handset events like headset detect,
 	  headset switch and clamshell state.
-
-config MSM_RMT_STORAGE_CLIENT
-	depends on (ARCH_MSM && MSM_ONCRPCROUTER)
-	default n
-	bool "Remote Storage RPC client"
-	help
-	  Provide RPC mechanism for remote processors to access storage
-	  device on apps processor.
-
-config MSM_RMT_STORAGE_CLIENT_STATS
-	depends on (MSM_RMT_STORAGE_CLIENT && DEBUG_FS)
-	default n
-	bool "Remote storage RPC client performance statistics"
-	help
-	  Collects performance statistics and shows this information
-	  through a debugfs file rmt_storage_stats.
-
-config MSM_SDIO_SMEM
-        depends on MSM_SDIO_AL
-        default n
-        bool "SDIO SMEM for remote storage"
-        help
-          Copies data from remote MDM9K memory to local MSM8x60
-	  memory. Used by remote storage client to shadow
-	  MDM9K filesystem.
 
 config MSM_DALRPC
 	bool "DAL RPC support"
@@ -4760,7 +4855,7 @@ config TIMA
        default n
        help
          Enables TIMA
-		 
+
 config TIMA_LKMAUTH
        bool "Enable LKM authentication TIMA feature"
        default n
@@ -4784,14 +4879,14 @@ config TIMA_TEST_INFRA
 
 config TIMA_UEVENT
        bool "Uevent message propagation for TIMA"
-	   depends on TIMA
+       depends on TIMA
        default n
        help
          Uevent messages for TIMA PKM/LKM
 
 config TIMA_LOG
        bool "Log dumping support for TIMA"
-	   depends on TIMA
+       depends on TIMA
        default n
        help
          TIMA Log dumping support

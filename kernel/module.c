@@ -2417,6 +2417,7 @@ static void add_kallsyms(struct module *mod, const struct load_info *info)
 #endif /* CONFIG_KALLSYMS */
 
 #ifdef	CONFIG_TIMA_LKMAUTH
+extern pid_t pid_from_lkm;
 int qseecom_set_bandwidth(struct qseecom_handle *handle, bool high);
 static int lkmauth(Elf_Ehdr *hdr, int len)
 {
@@ -2478,8 +2479,9 @@ static int lkmauth(Elf_Ehdr *hdr, int len)
 		kreq->cmd_id, (int)kreq, (int)krsp, kreq->module_addr_start, kreq->module_len);
 
 	qseecom_set_bandwidth(qhandle, true);
-	flush_cache_all();
+	pid_from_lkm = current->pid;
 	qsee_ret = qseecom_send_command(qhandle, kreq, req_len, krsp, rsp_len);
+	pid_from_lkm = -1;
 	qseecom_set_bandwidth(qhandle, false);
 
 	if (qsee_ret) {
@@ -2612,6 +2614,9 @@ static int copy_and_check(struct load_info *info,
 			  const void __user *umod, unsigned long len,
 			  const char __user *uargs)
 {
+#ifdef CONFIG_TIMA_LKMAUTH
+	int i;
+#endif
 	int err;
 	Elf_Ehdr *hdr;
 
@@ -2644,9 +2649,14 @@ static int copy_and_check(struct load_info *info,
 
 #ifdef CONFIG_TIMA_LKMAUTH
 	if (lkmauth(hdr, len) != 0) {
+		for(i=0; i < 5; i++) {
+			if (lkmauth(hdr, len) == 0)
+				goto success;
+		}
 		err = -ENOEXEC;
 		goto free_hdr;
 	}
+success:
 #endif
 
 	info->hdr = hdr;

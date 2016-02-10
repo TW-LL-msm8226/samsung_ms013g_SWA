@@ -292,8 +292,8 @@ static struct adpd_platform_data adpd142_config_data = {
 		0x001f1Fc0,
 		0x00201ad0,
 		0x00211470,
-		0x00231032,
-		0x00241039,
+		0x00233032,
+		0x00243035,
 		0x002502CC,
 		0x00340000,
 		0x00260000,
@@ -2388,6 +2388,7 @@ adpd_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	mutex_init(&pst_adpd->mutex);
 
 	pst_adpd->client = client;
+	pst_adpd->client->irq = gpio_to_irq(pst_adpd->hrm_int);
 	pst_adpd->ptr_config = pdata;
 	pst_adpd->read = adpd142_i2c_read;
 	pst_adpd->write = adpd142_i2c_write;
@@ -2395,7 +2396,7 @@ adpd_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_set_clientdata(client, (struct adpd142_data *)pst_adpd);
 
 	adpd_power_enable(pst_adpd, 1);
-	msleep(20);
+	msleep(30);
 
 	/*chip ID verification */
 	u16_regval = reg_read(pst_adpd, ADPD_CHIPID_ADDR);
@@ -2405,18 +2406,16 @@ adpd_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		case ADPD_CHIPID(1):
 		case ADPD_CHIPID(2):
 			err = 0;
-			ADPD142_dbg("chipID value = 0x%x\n", u16_regval);
+			pr_err("chipID value is = 0x%x\n", u16_regval);
 			break;
 		default:
 			err = 1;
 			break;
 	};
 	if (err) {
-		ADPD142_dbg("chipID value = 0x%x\n", u16_regval);
 		pr_err("[SENSOR] %s - exit_chipid_verification.\n", __func__);
 		goto exit_chipid_verification;
 	}
-	ADPD142_info("chipID value = 0x%x\n", u16_regval);
 
 	//pst_adpd->dev = &client->dev;
 	pr_info("%s - start \n", __func__);

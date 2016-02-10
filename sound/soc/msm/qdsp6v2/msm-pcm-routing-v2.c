@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,9 +38,6 @@
 #include "q6core.h"
 
 extern u32 score;
-#if defined (CONFIG_SND_SOC_MAX98504) || defined (CONFIG_SND_SOC_MAXIM_DSM) // Vinay
-extern int32_t dsm_open(int32_t port_id,uint32_t*  dsm_params, u8* user_params);
-#endif
 struct msm_pcm_routing_bdai_data {
 	u16 port_id; /* AFE port ID */
 	u8 active; /* track if this backend is enabled */
@@ -76,7 +73,7 @@ static int fm_pcmrx_switch_enable;
 static int srs_alsa_ctrl_ever_called;
 static int lsm_mux_slim_port;
 static int slim0_rx_aanc_fb_port;
-static int msm_route_ec_ref_rx = 3; /* NONE */
+static int msm_route_ec_ref_rx = 4; /* NONE */
 static uint32_t voc_session_id = ALL_SESSION_VSID;
 static int msm_route_ext_ec_ref = AFE_PORT_INVALID;
 
@@ -157,53 +154,14 @@ static void msm_send_eq_values(int eq_idx);
  * If new back-end is defined, add new back-end DAI ID at the end of enum
  */
 
-
+#define SRS_TRUMEDIA_INDEX 2
 union srs_trumedia_params_u {
 	struct srs_trumedia_params srs_params;
 	unsigned short int raw_params[1];
 };
-static union srs_trumedia_params_u msm_srs_trumedia_params[2];
+static union srs_trumedia_params_u msm_srs_trumedia_params[SRS_TRUMEDIA_INDEX];
 static int srs_port_id = -1;
 
-#ifdef CONFIG_SND_SOC_MAX98504
-/*---------------------------DSM changes Starts----------------*/
-static int msm_routing_set_dsm_filter(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol) {
-	uint32_t filter_set;
-    int32_t port_id;
-    filter_set = ucontrol->value.integer.value[0];
-    if(filter_set == 7) {
-        /* corresponds to TxInit in dsm_filter_text array
-        if this array changes then this entry also needs to change */
-        //port_id = 0x1001;//SLIMBUS_0_TX;
-        port_id = 0x1005;//AFE_PORT_ID_TERTIARY_MI2S_TX;
-    } else {
-        port_id = SLIMBUS_0_RX;
-    }
-    //pr_err(" Starting DSM_open set called for port_id %d param value %d -----", port_id, filter_set);
-	mutex_lock(&routing_lock);
-    dsm_open(port_id, &filter_set, NULL);
-	mutex_unlock(&routing_lock);
-	return 0;
-}
-
-static const char *dsm_filter_text[] = { "Disable", "Enable", "GetPrms", \
-                                         "SetPrms", "SetClip", "NoIV",  \
-                                         "RxInit", "TxInit" };
-
-static const struct soc_enum dsm_enum[] = {
-    SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(dsm_filter_text),
-                        dsm_filter_text),
-};
-
-static const struct snd_kcontrol_new dsm_filter_mixer_controls[] = {
-    SOC_ENUM_EXT("DSM", dsm_enum[0],
-    msm_routing_set_dsm_filter,
-    msm_routing_set_dsm_filter),
-};
-
-/*---------------------------DSM changes Ends----------------*/
-#endif
 
 static void srs_send_params(int port_id, unsigned int techs,
 		int param_block_idx)
@@ -247,11 +205,12 @@ int get_topology(int path_type)
 	else
 		topology_id = get_adm_tx_topology();
 
-#ifdef CONFIG_SND_SOC_MAXIM_DSM
+#ifdef CONFIG_SND_SOC_MAXIM_DSM_COPP
 	if((path_type!=ADM_PATH_PLAYBACK) && (topology_id ==0 || 0x00010315/*AUDIO_TX_MONO_COPP*/))	{
 		topology_id = ADM_CUSTOM_PP_TX_TOPO_ID_DYNAMIC;
 	}
 #endif
+
 	if (topology_id  == 0)
 		topology_id = NULL_COPP_TOPOLOGY;
 
@@ -776,9 +735,21 @@ static void msm_pcm_routing_process_voice(u16 reg, u16 val, int set)
 
 			if (voc_get_route_flag(session_id, RX_PATH) &&
 			   voc_get_route_flag(session_id, TX_PATH))
+			   #if !defined(CONFIG_MACH_KLTE_VZW)
+				{
 				voc_enable_cvp(session_id);
+			   	}
+			   #else
+			   	{
+					voc_enable_device(session_id);
+			   	}
+			   #endif
 		} else {
+			   #if !defined(CONFIG_MACH_KLTE_VZW)		
 			voc_disable_cvp(session_id);
+			   #else
+				voc_disable_device(session_id);
+			   #endif
 		}
 	} else {
 		voc_set_route_flag(session_id, TX_PATH, set);
@@ -787,9 +758,21 @@ static void msm_pcm_routing_process_voice(u16 reg, u16 val, int set)
 				msm_bedais[reg].port_id, DEV_TX);
 			if (voc_get_route_flag(session_id, RX_PATH) &&
 			   voc_get_route_flag(session_id, TX_PATH))
+			   #if !defined(CONFIG_MACH_KLTE_VZW)
+				{
 				voc_enable_cvp(session_id);
+			   	}
+			   #else
+			   	{
+					voc_enable_device(session_id);
+			   	}
+			   #endif
 		} else {
+			   #if !defined(CONFIG_MACH_KLTE_VZW)
 			voc_disable_cvp(session_id);
+			   #else
+				voc_disable_device(session_id);
+			   #endif
 		}
 	}
 }
@@ -1240,7 +1223,7 @@ static int msm_routing_set_srs_trumedia_control_(struct snd_kcontrol *kcontrol,
 			SRS_PARAM_OFFSET_MASK) >> 16);
 	value = (unsigned short)(ucontrol->value.integer.value[0] &
 			SRS_PARAM_VALUE_MASK);
-	if (offset < max) {
+	if ((offset < max) && (index < SRS_TRUMEDIA_INDEX)) {
 		msm_srs_trumedia_params[index].raw_params[offset] = value;
 		pr_debug("SRS %s: index set... (max %d, requested %d, val %d, paramblockidx %d)",
 			__func__, max, offset, value, index);
@@ -1556,6 +1539,10 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		msm_route_ec_ref_rx = 1;
 		ec_ref_port_id = AFE_PORT_ID_PRIMARY_MI2S_RX;
 		break;
+	case 2:
+		msm_route_ec_ref_rx = 2;
+		ec_ref_port_id = AFE_PORT_ID_SECONDARY_MI2S_RX;
+		break;
 	default:
 		msm_route_ec_ref_rx = 3; /* NONE */
 		ec_ref_port_id = -1;
@@ -1568,10 +1555,10 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static const char *const ec_ref_rx[] = { "SLIM_RX", "I2S_RX", "PROXY_RX",
-	"NONE" };
+static const char *const ec_ref_rx[] = { "SLIM_RX", "I2S_RX", "SEC_I2S_RX",
+	"PROXY_RX", "NONE" };
 static const struct soc_enum msm_route_ec_ref_rx_enum[] = {
-	SOC_ENUM_SINGLE_EXT(4, ec_ref_rx),
+	SOC_ENUM_SINGLE_EXT(5, ec_ref_rx),
 };
 
 static const struct snd_kcontrol_new ec_ref_rx_mixer_controls[] = {
@@ -1626,7 +1613,7 @@ static int msm_routing_ext_ec_put(struct snd_kcontrol *kcontrol,
 		msm_route_ext_ec_ref = AFE_PORT_INVALID;
 		break;
 	}
-	if (voc_set_ext_ec_ref(msm_route_ext_ec_ref, state)) {
+	if (!voc_set_ext_ec_ref(msm_route_ext_ec_ref, state)) {
 		mutex_unlock(&routing_lock);
 		snd_soc_dapm_mux_update_power(widget, kcontrol, 1, mux, e);
 	} else {
@@ -2175,6 +2162,10 @@ static const struct snd_kcontrol_new mmul2_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 #ifdef CONFIG_SND_SOC_MAX98505
 	SOC_SINGLE_EXT("TERT_MI2S_TX", MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+#elif defined(CONFIG_SND_SOC_MAX98504)	
+	SOC_SINGLE_EXT("SEC_MI2S_TX", MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 #endif
@@ -3774,6 +3765,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia6 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 #ifdef CONFIG_SND_SOC_MAX98505
 	{"MultiMedia2 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
+#elif defined(CONFIG_SND_SOC_MAX98504)		
+	{"MultiMedia2 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 #endif
 
 	{"INTERNAL_BT_SCO_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -3962,6 +3955,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"VOC_EXT_EC MUX", "TERT_MI2S_TX" , "TERT_MI2S_TX"},
 	{"VOC_EXT_EC MUX", "QUAT_MI2S_TX" , "QUAT_MI2S_TX"},
 	{"CS-VOICE_UL1", NULL, "VOC_EXT_EC MUX"},
+	{"VOIP_UL", NULL, "VOC_EXT_EC MUX"},
+	{"VoLTE_UL", NULL, "VOC_EXT_EC MUX"},
 
 	{"Voice_Tx Mixer", "PRI_TX_Voice", "PRI_I2S_TX"},
 	{"Voice_Tx Mixer", "PRI_MI2S_TX_Voice", "PRI_MI2S_TX"},
@@ -4446,12 +4441,6 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 	snd_soc_add_platform_controls(platform, msm_voc_session_controls,
 				      ARRAY_SIZE(msm_voc_session_controls));
 
-#if defined (CONFIG_SND_SOC_MAX98504)
-    /* Adding DSM module */
-    snd_soc_add_platform_controls(platform,
-                dsm_filter_mixer_controls,
-                ARRAY_SIZE(dsm_filter_mixer_controls));
-#endif
 
 	return 0;
 }

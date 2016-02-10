@@ -2375,7 +2375,7 @@ dhd_bus_txdata(struct dhd_bus *bus, void *pkt)
 		ret = dhdsdio_txpkt(bus, pkt,
 		        (bus->ext_loop ? SDPCM_TEST_CHANNEL : SDPCM_DATA_CHANNEL), TRUE, FALSE);
 #endif
-		if (ret == BCME_OK)
+		if (ret != BCME_OK)
 			bus->dhd->tx_errors++;
 		else
 			bus->dhd->dstats.tx_bytes += datalen;
@@ -2500,7 +2500,7 @@ dhdsdio_sendfromq(dhd_bus_t *bus, uint maxframes)
 #endif
 		}
 
-		if (ret == BCME_OK)
+		if (ret != BCME_OK)
 			bus->dhd->tx_errors++;
 		else
 			bus->dhd->dstats.tx_bytes += datalen;

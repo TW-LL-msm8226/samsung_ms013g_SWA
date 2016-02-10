@@ -14,8 +14,11 @@
  */
 #include "ssp.h"
 
-#define SSP_FIRMWARE_REVISION_STM	14051400
-#define SSP_FIRMWARE_REVISION_TASMAN	14051300
+#define SSP_FIRMWARE_REVISION_STM		14051400
+#define SSP_FIRMWARE_REVISION_TASMAN		14051300
+
+#define SSP_FIRMWARE_REVISION_HESTIA		14073100
+#define SSP_FIRMWARE_REVISION_HESTIA_REV02	14102700
 
 #define BOOT_SPI_HZ	4800000
 #define NORM_SPI_HZ	4800000
@@ -23,6 +26,8 @@
 /* Bootload mode cmd */
 #define BL_FW_NAME			"ssp_stm.fw"
 #define BL_FW_NAME_TASMAN		"ssp_stm_tasman.fw"
+#define BL_FW_NAME_HESTIA		"ssp_stm_hestia.fw"
+#define BL_FW_NAME_HESTIA_REV02		"ssp_stm_hestia_rev02.fw"
 #define BL_UMS_FW_NAME			"ssp_stm.bin"
 #define BL_CRASHED_FW_NAME		"ssp_crashed.fw"
 
@@ -98,6 +103,12 @@ unsigned int get_module_rev(struct ssp_data *data)
 {
 #if defined(CONFIG_SEC_KSPORTS_PROJECT)
 	return SSP_FIRMWARE_REVISION_TASMAN;
+#elif defined(CONFIG_SENSORS_SSP_STM_HESTIA)
+	pr_info("[SSP] %s : ap_rev = %d\n", __func__, data->ap_rev);
+	if (data->ap_rev <= 5)
+		return SSP_FIRMWARE_REVISION_HESTIA;
+	else
+		return SSP_FIRMWARE_REVISION_HESTIA_REV02;
 #else
 	return SSP_FIRMWARE_REVISION_STM;
 #endif
@@ -697,7 +708,12 @@ static int change_to_bootmode(struct ssp_data *data)
 		gpio_set_value_cansleep(data->rst, 1);
 		usleep_range(15000, 15500);
 	}
-
+#if CONFIG_SENSORS_SSP_STM_HESTIA
+	data->spi->mode = SPI_MODE_0;
+	if (spi_setup(data->spi))
+		pr_err("failed to setup spi mode for boot\n");
+	usleep_range(1000, 1100);
+#endif
 	ret = stm32fwu_spi_write(data->spi, &syncb, 1);
 #if SSP_STM_DEBUG
 	pr_info("[SSP] stm32fwu_spi_write(sync byte) returned %d\n", ret);
@@ -734,11 +750,11 @@ static int update_mcu_bin(struct ssp_data *data, int iBinType)
     // 1. Start system boot mode
 	do {
 		iRet = change_to_bootmode(data);
-		pr_info("[ssp] bootmode %d retry: %d\n", iRet, 3 - retry);
+		pr_info("[ssp] bootmode 0x%x retry: %d\n", iRet, 3 - retry);
 	} while (retry-- > 0 && iRet != BL_ACK );
 
 	if(iRet != BL_ACK) {
-		pr_err("[SSP]: %s - change_to_bootmode %d\n",
+		pr_err("[SSP] %s - change_to_bootmode %d\n",
 			__func__, iRet);
 		return iRet;
 	}
@@ -746,7 +762,7 @@ static int update_mcu_bin(struct ssp_data *data, int iBinType)
     // 2. Flash erase all
 	iRet = fw_erase_stm(data->spi);
 	if (iRet < 0) {
-		pr_err("[SSP]: %s - fw_erase_stm %d\n",
+		pr_err("[SSP] %s - fw_erase_stm %d\n",
 			__func__, iRet);
 		return iRet;
 	}
@@ -756,6 +772,13 @@ static int update_mcu_bin(struct ssp_data *data, int iBinType)
 	 /* HW request: I2C line is reversed */
 #if defined(CONFIG_SEC_KSPORTS_PROJECT)
 		iRet = load_kernel_fw_bootmode(data->spi, BL_FW_NAME_TASMAN);
+#elif defined(CONFIG_SENSORS_SSP_STM_HESTIA)
+		if (data->ap_rev <= 5)
+			iRet = load_kernel_fw_bootmode(data->spi,
+					BL_FW_NAME_HESTIA);
+		else
+			iRet = load_kernel_fw_bootmode(data->spi,
+					BL_FW_NAME_HESTIA_REV02);
 #else
 		iRet = load_kernel_fw_bootmode(data->spi, BL_FW_NAME);
 #endif
@@ -772,7 +795,12 @@ static int update_mcu_bin(struct ssp_data *data, int iBinType)
 /* STM : GO USER ADDR */
 	stm32fwu_spi_send_cmd(data->spi, &cmd);
 	send_addr(data->spi, STM_APP_ADDR, 0);
-
+#if CONFIG_SENSORS_SSP_STM_HESTIA
+	data->spi->mode = SPI_MODE_1;
+	if (spi_setup(data->spi))
+		pr_err("failed to setup spi mode for app\n");
+	usleep_range(1000, 1100);
+#endif
 	return iRet;
 }
 
@@ -781,7 +809,7 @@ int forced_to_download_binary(struct ssp_data *data, int iBinType)
 	int iRet = 0;
 	int retry = 3;
 
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
+	ssp_dbg("[SSP] %s - mcu binany update!\n", __func__);
 
 	ssp_enable(data, false);
 
@@ -801,7 +829,7 @@ int forced_to_download_binary(struct ssp_data *data, int iBinType)
 		pr_err("failed to setup spi for ssp_norm\n");
 
 	if (iRet < 0) {
-		ssp_dbg("[SSP]: %s - update_mcu_bin failed!\n", __func__);
+		ssp_dbg("[SSP] %s - update_mcu_bin failed!\n", __func__);
 		goto out;
 	}
 
@@ -832,6 +860,11 @@ int check_fwbl(struct ssp_data *data)
 	pr_info("[SSP] change_rev = %d\n", data->ssp_changes);
 #if defined(CONFIG_SEC_KSPORTS_PROJECT)
 	fw_revision = SSP_FIRMWARE_REVISION_TASMAN;
+#elif defined(CONFIG_SENSORS_SSP_STM_HESTIA)
+	if (data->ap_rev <= 5)
+		fw_revision = SSP_FIRMWARE_REVISION_HESTIA;
+	else
+		fw_revision = SSP_FIRMWARE_REVISION_HESTIA_REV02;
 #else
 	fw_revision = SSP_FIRMWARE_REVISION_STM;
 #endif

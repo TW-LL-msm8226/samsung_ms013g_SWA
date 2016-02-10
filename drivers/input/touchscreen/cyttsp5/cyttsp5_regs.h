@@ -50,15 +50,6 @@
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
 #include <linux/cyttsp5_core.h>
-#ifdef CONFIG_SEC_PATEK_PROJECT
-#include <linux/firmware.h>
-#include <linux/regulator/consumer.h>
-#include <linux/clk.h>
-
-#define FPGA_FW_PATH		"ice40xx/fpga_sdio_patek.fw"
-#define FPGA_MAIN_CLOCK_GPIO	58
-#define FPGA_CDONE_GPIO		34
-#endif
 
 #define TTHE_TUNER_SUPPORT
 #define SAMSUNG_FACTORY_TEST
@@ -121,7 +112,7 @@
 #define CY_REQUEST_EXCLUSIVE_TIMEOUT 500
 #define CY_REQUEST_EXCLUSIVE_TIMEOUT_GET_PARAM 1000
 #define CY_REQUEST_EXCLUSIVE_TIMEOUT_SET_PARAM 2000
-#define CY_WATCHDOG_TIMEOUT         1000
+#define CY_WATCHDOG_TIMEOUT         3000
 #define CY_WATCHDOG_REQUEST_EXCLUSIVE_TIMEOUT 6000
 #define CY_CORE_RESET_AND_WAIT_TIMEOUT		500
 #define CY_CORE_WAKEUP_TIMEOUT			500
@@ -734,12 +725,13 @@ struct cyttsp5_mt_data {
 #ifdef SAMSUNG_TOUCH_MODE
 	bool glove_enable;
 	bool glove_switch;
+	bool prevent_touch;
 	bool stylus_enable;
 #endif
 #ifdef SAMSUNG_PALM_MOTION
 	bool palm;
+	bool largeobj;
 #endif
-	bool prevent_touch;
 };
 
 struct cyttsp5_btn_data {
@@ -822,6 +814,7 @@ struct cyttsp5_samsung_factory_data {
 	u8 report_rate;
 	bool probe_done;
 	bool suspended;
+        bool is_inputmethod;
 };
 #endif
 
@@ -954,11 +947,6 @@ struct cyttsp5_core_data {
 	u8 pr_buf[CY_MAX_PRBUF_SIZE];
 #endif
 	bool probe_done;
-#ifdef CONFIG_SEC_PATEK_PROJECT
-	const struct firmware *fpga_fw;
-	int Is_clk_enabled;
-	int enable_counte;
-#endif
 };
 
 struct cyttsp5_bus_ops {
@@ -1186,9 +1174,5 @@ extern const struct dev_pm_ops cyttsp5_pm_ops;
 int cyttsp5_core_suspend(struct device *dev);
 int cyttsp5_core_resume(struct device *dev);
 
-#ifdef CONFIG_SEC_PATEK_PROJECT
-void ice40_fpga_firmware_update(struct cyttsp5_core_data *cd);
-void fpga_enable(struct cyttsp5_core_data *cd, int enable_clk);
-#endif
-
+#define CY_CORE_STARTUP_RETRY_COUNT 3
 #endif /* _CYTTSP5_REGS_H */

@@ -161,7 +161,9 @@ struct k2hh_p {
 	int sda_gpio;
 	int scl_gpio;
 	int time_count;
-
+#ifdef CONFIG_SEC_RUBENS_PROJECT
+	u8 odr;
+#endif
 	u8 axis_map_x;
 	u8 axis_map_y;
 	u8 axis_map_z;
@@ -428,7 +430,9 @@ static int k2hh_set_odr(struct k2hh_p *data)
 	ret = k2hh_i2c_read(data, CTRL1_REG, &temp, 1);
 	buf = ((mask & new_odr) | ((~mask) & temp));
 	ret += k2hh_i2c_write(data, CTRL1_REG, buf);
-
+#ifdef CONFIG_SEC_RUBENS_PROJECT
+	data->odr = new_odr;
+#endif
 	pr_info("[SENSOR]: %s - change odr %d\n", __func__, i);
 	return ret;
 }
@@ -442,14 +446,26 @@ static int k2hh_set_mode(struct k2hh_p *data, unsigned char mode)
 
 	switch (mode) {
 	case K2HH_MODE_NORMAL:
-		mask = K2HH_ACC_AXES_MASK;
 		ret = k2hh_i2c_read(data, CTRL1_REG, &temp, 1);
+#ifdef CONFIG_SEC_RUBENS_PROJECT
+		mask = K2HH_ACC_ODR_MASK;
+		buf = ((mask & data->odr) | ((~mask) & temp));
+#else
+		mask = K2HH_ACC_AXES_MASK;
 		buf = ((mask & ACC_ENABLE_ALL_AXES) | ((~mask) & temp));
+#endif
 		ret += k2hh_i2c_write(data, CTRL1_REG, buf);
 		break;
 	case K2HH_MODE_SUSPEND:
-		mask = K2HH_ACC_AXES_MASK;
 		ret = k2hh_i2c_read(data, CTRL1_REG, &temp, 1);
+#ifdef CONFIG_SEC_RUBENS_PROJECT
+		if (data->recog_flag == ON)
+			break;
+
+		mask = K2HH_ACC_ODR_MASK;
+#else
+		mask = K2HH_ACC_AXES_MASK;
+#endif
 		buf = ((mask & ACC_PM_OFF) | ((~mask) & temp));
 		ret += k2hh_i2c_write(data, CTRL1_REG, buf);
 		break;
@@ -1387,7 +1403,9 @@ static int k2hh_probe(struct i2c_client *client,
 	data->time_count = 0;
 	data->irq_state = 0;
 	data->recog_flag = OFF;
-
+#ifdef CONFIG_SEC_RUBENS_PROJECT
+	k2hh_set_odr(data);
+#endif
 	k2hh_set_range(data, K2HH_RANGE_2G);
 	k2hh_set_mode(data, K2HH_MODE_SUSPEND);
 

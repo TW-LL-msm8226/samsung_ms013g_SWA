@@ -158,9 +158,11 @@ static int diag_dci_remove_req_entry(unsigned char *buf, int len,
 				     struct dci_pkt_req_entry_t *entry)
 {
 	uint16_t rsp_count = 0, delayed_rsp_id = 0;
+	mutex_lock(&driver->dci_mutex);
 	if (!buf || len <= 0 || !entry) {
 		pr_err("diag: In %s, invalid input buf: %p, len: %d, entry: %p\n",
 			__func__, buf, len, entry);
+		mutex_unlock(&driver->dci_mutex);
 		return -EIO;
 	}
 
@@ -168,12 +170,14 @@ static int diag_dci_remove_req_entry(unsigned char *buf, int len,
 	if (*buf != 0x80) {
 		list_del(&entry->track);
 		kfree(entry);
+		mutex_unlock(&driver->dci_mutex);
 		return 1;
 	}
 
 	/* It is a delayed response. Check if the length is valid */
 	if (len < MIN_DELAYED_RSP_LEN) {
 		pr_err("diag: Invalid delayed rsp packet length %d\n", len);
+		mutex_unlock(&driver->dci_mutex);
 		return -EINVAL;
 	}
 
@@ -185,6 +189,7 @@ static int diag_dci_remove_req_entry(unsigned char *buf, int len,
 	if (delayed_rsp_id == 0) {
 		list_del(&entry->track);
 		kfree(entry);
+		mutex_unlock(&driver->dci_mutex);
 		return 1;
 	}
 
@@ -198,9 +203,11 @@ static int diag_dci_remove_req_entry(unsigned char *buf, int len,
 	if (rsp_count > 0 && rsp_count < 0x1000) {
 		list_del(&entry->track);
 		kfree(entry);
+		mutex_unlock(&driver->dci_mutex);
 		return 1;
 	}
 
+	mutex_unlock(&driver->dci_mutex);
 	return 0;
 }
 
@@ -282,7 +289,7 @@ void extract_dci_events(unsigned char *buf)
 {
 	uint16_t event_id, event_id_packet, length, temp_len;
 	uint8_t *event_mask_ptr, byte_mask, payload_len, payload_len_field;
-	uint8_t timestamp[8], bit_index, timestamp_len;
+	uint8_t timestamp[8] = {0}, bit_index, timestamp_len;
 	uint8_t event_data[MAX_EVENT_SIZE];
 	unsigned int byte_index, total_event_len, i;
 	struct diag_dci_client_tbl *entry;
@@ -387,17 +394,23 @@ void extract_dci_events(unsigned char *buf)
 
 void extract_dci_log(unsigned char *buf)
 {
-	uint16_t log_code, item_num;
+	uint16_t log_code, item_num, log_length;
 	uint8_t equip_id, *log_mask_ptr, byte_mask;
 	unsigned int i, byte_index, byte_offset = 0;
 	struct diag_dci_client_tbl *entry;
 
+    log_length = *(uint16_t *)(buf + 2);
 	log_code = *(uint16_t *)(buf + 6);
 	equip_id = LOG_GET_EQUIP_ID(log_code);
 	item_num = LOG_GET_ITEM_NUM(log_code);
 	byte_index = item_num/8 + 2;
 	byte_mask = 0x01 << (item_num % 8);
 
+	if (log_length > USHRT_MAX - 4) {
+		pr_err("diag: Integer overflow in %s, log_len:%d",
+				__func__, log_length);
+		return;
+	}
 	byte_offset = (equip_id * 514) + byte_index;
 	if (byte_offset >=  DCI_LOG_MASK_SIZE) {
 		pr_err("diag: Invalid byte_offset %d in dci log\n",
@@ -434,8 +447,8 @@ void extract_dci_log(unsigned char *buf)
 				*(int *)(entry->dci_data+entry->data_len) =
 								DCI_LOG_TYPE;
 				memcpy(entry->dci_data + entry->data_len + 4,
-					    buf + 4, *(uint16_t *)(buf + 2));
-				entry->data_len += 4 + *(uint16_t *)(buf + 2);
+					    buf + 4, log_length);
+				entry->data_len += 4 + log_length;
 			}
 			mutex_unlock(&entry->data_mutex);
 			mutex_unlock(&dci_health_mutex);
@@ -640,7 +653,9 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 			subsys_cmd_code);
 		for (i = 0; i < diag_max_reg; i++) {
 			entry = driver->table[i];
-			if (entry.process_id != NO_PROCESS) {
+			//qcom patch for command block issue
+			//if (entry.process_id != NO_PROCESS) {
+			if (entry.client_id == 0) {
 				if (entry.cmd_code == cmd_code &&
 					entry.subsys_id == subsys_id &&
 					entry.cmd_code_lo <= subsys_cmd_code &&
@@ -837,6 +852,22 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 		ret = diag_send_dci_event_mask(&driver->smd_cntl[MODEM_DATA]);
 	} else {
 		pr_alert("diag: Incorrect DCI transaction\n");
+	}
+	return ret;
+}
+
+int diag_dci_find_client_index_health(int client_id)
+{
+	int i, ret = DCI_CLIENT_INDEX_INVALID;
+
+	for (i = 0; i < MAX_DCI_CLIENTS; i++) {
+		if (driver->dci_client_tbl[i].client != NULL) {
+			if (driver->dci_client_tbl[i].client_id ==
+					client_id) {
+				ret = i;
+				break;
+			}
+		}
 	}
 	return ret;
 }

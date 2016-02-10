@@ -49,6 +49,8 @@
 #include "barcode_emul_ice4_hlte.h"
 #include <linux/err.h>
 
+#define US_TO_PATTERN		1000000
+
 #if defined(CONFIG_MACH_H3GDUOS)
 #include <mach/gpiomux.h>
 #endif
@@ -429,8 +431,7 @@ static int barcode_fpga_fimrware_update_start(const u8 *data, int len)
 		udelay(5);
 		pr_barcode("FPGA firmware update success\n");
 		fw_dl_complete = true;
-		break;		
-		
+		break;
 	} while (retry);
 	fpga_enable(0,0);
 	return 0;
@@ -945,9 +946,10 @@ static void ir_remocon_work(struct barcode_emul_data *ir_data, int count)
 */
 	emission_time = \
 		(1000 * (data->ir_sum) / (data->ir_freq));
-/*	if (emission_time > 0)
+#if defined(CONFIG_SEC_FPGA_CTS_444)
+	if (emission_time > 0)
 		msleep(emission_time);
-*/
+#endif
 	actual_time = 0;
 	t1 = ktime_get();
 	while((gpio_get_value(g_pdata->irda_irq) == 0) && (actual_time <= emission_time))
@@ -992,8 +994,8 @@ static ssize_t remocon_store(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t size)
 {
 	struct barcode_emul_data *data = dev_get_drvdata(dev);
-	unsigned int _data;
-	int count, i;
+	unsigned int _data, _tdata;
+	int count, i, converting_factor = 1;
 
 	pr_barcode("ir_send called\n");
 
@@ -1003,6 +1005,7 @@ static ssize_t remocon_store(struct device *dev, struct device_attribute *attr,
 				break;
 			if (data->count == 2) {
 				data->ir_freq = _data;
+				converting_factor = US_TO_PATTERN / data->ir_freq;
 				if (data->on_off) {
 				//	msleep(30);
 				} else {
@@ -1017,12 +1020,13 @@ static ssize_t remocon_store(struct device *dev, struct device_attribute *attr,
 								= _data & 0xFF;
 				data->count += 3;
 			} else {
-				data->ir_sum += _data;
+				_tdata = _data / converting_factor;
+				data->ir_sum += _tdata;
 				count = data->count;
 				data->i2c_block_transfer.data[count]
-								= _data >> 8;
+								= _tdata >> 8;
 				data->i2c_block_transfer.data[count+1]
-								= _data & 0xFF;
+								= _tdata & 0xFF;
 				data->count += 2;
 			}
 

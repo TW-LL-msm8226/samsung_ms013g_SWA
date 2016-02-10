@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfg80211.c 476678 2014-05-09 14:46:37Z $
+ * $Id: wl_cfg80211.c 488257 2014-06-30 08:53:47Z $
  */
 /* */
 #include <typedefs.h>
@@ -156,6 +156,17 @@ u32 wl_dbg_level = WL_DBG_ERR;
 #define WLAN_EID_SSID	0
 #define CH_MIN_5G_CHANNEL 34
 #define CH_MIN_2G_CHANNEL 1
+
+#ifdef WLAIBSS
+enum abiss_event_type {
+	AIBSS_EVENT_TXFAIL
+};
+#endif
+
+enum rmc_event_type {
+	RMC_EVENT_NONE,
+	RMC_EVENT_LEADER_CHECK_FAIL
+};
 
 /* This is to override regulatory domains defined in cfg80211 module (reg.c)
  * By default world regulatory domain defined in reg.c puts the flags NL80211_RRF_PASSIVE_SCAN
@@ -2853,9 +2864,9 @@ wl_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
 	chanspec_t chanspec = 0;
 	u32 param[2] = {0, 0};
 	u32 bw_cap = 0;
-#ifdef WLAIBSS
-	aibss_bcn_force_config_t bcn_config;
-#endif /* WLAIBSS */
+#if defined(WLAIBSS) && defined(WLAIBSS_PS)
+	s32 atim = 10;
+#endif /* WLAIBSS & WLAIBSS_PS */
 
 	WL_TRACE(("In\n"));
 	RETURN_EIO_IF_NOT_UP(cfg);
@@ -2984,22 +2995,13 @@ wl_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
 		WL_ERR(("Enable custom IBSS mode failed (%d)\n", err));
 		return err;
 	}
-
-	/* Configure custom IBSS beacon transmission */
-	memset(&bcn_config, 0, sizeof(bcn_config));
-	bcn_config.initial_min_bcn_dur = AIBSS_INITIAL_MIN_BCN_DUR;
-	bcn_config.min_bcn_dur = AIBSS_MIN_BCN_DUR;
-	bcn_config.bcn_flood_dur = AIBSS_BCN_FLOOD_DUR;
-	bcn_config.version = AIBSS_BCN_FORCE_CONFIG_VER_0;
-	bcn_config.len = sizeof(bcn_config);
-
-	err = wldev_iovar_setbuf(dev, "aibss_bcn_force_config", &bcn_config,
-		sizeof(bcn_config), cfg->ioctl_buf, WLC_IOCTL_MAXLEN, NULL);
-
+#ifdef WLAIBSS_PS
+	err = wldev_ioctl(dev, WLC_SET_ATIM, &atim, sizeof(int), true);
 	if (unlikely(err)) {
-		WL_ERR(("Setting IBSS beacon configuration failed (%d)\n", err));
+		WL_ERR(("Enable custom IBSS ATIM mode failed (%d)\n", err));
 		return err;
 	}
+#endif /* WLAIBSS_PS */
 #endif /* WLAIBSS */
 
 	err = wldev_ioctl(dev, WLC_SET_SSID, &join_params,
@@ -3024,6 +3026,7 @@ wl_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
 #ifdef WLAIBSS
 	cfg->aibss_txfail_seq = 0;	/* initialize the sequence */
 #endif /* WLAIBSS */
+	cfg->rmc_event_seq = 0; /* initialize rmcfail sequence */
 	return err;
 }
 
@@ -8200,13 +8203,21 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	return err;
 }
 
+void wl_cfg80211_set_rmc_pid(int pid)
+{
+	struct bcm_cfg80211 *cfg = g_bcm_cfg;
+	if (pid > 0)
+		cfg->rmc_event_pid = pid;
+	WL_DBG(("set pid for rmc event : pid=%d\n", pid));
+}
+
 #ifdef WLAIBSS
 void wl_cfg80211_set_txfail_pid(int pid)
 {
 	struct bcm_cfg80211 *cfg = g_bcm_cfg;
 	if (pid > 0)
 		cfg->aibss_txfail_pid = pid;
-	WL_DBG(("txfail : pid=%d\n", pid));
+	WL_DBG(("set pid for aibss fail event : pid=%d\n", pid));
 }
 
 static s32
@@ -8217,8 +8228,8 @@ wl_notify_aibss_txfail(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	int ret = -1;
 
 	if (cfg->aibss_txfail_pid != 0) {
-		ret = wl_netlink_send_msg(cfg->aibss_txfail_pid, cfg->aibss_txfail_seq++,
-			(void *)&e->addr, ETHER_ADDR_LEN);
+		ret = wl_netlink_send_msg(cfg->aibss_txfail_pid, AIBSS_EVENT_TXFAIL,
+			cfg->aibss_txfail_seq++, (void *)&e->addr, ETHER_ADDR_LEN);
 	}
 
 	WL_DBG(("txfail : evt=%d, pid=%d, ret=%d, mac=" MACF "\n",
@@ -8226,6 +8237,30 @@ wl_notify_aibss_txfail(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	return ret;
 }
 #endif /* WLAIBSS */
+
+static s32
+wl_notify_rmc_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+	const wl_event_msg_t *e, void *data)
+{
+	u32 evt = ntoh32(e->event_type);
+	u32 reason = ntoh32(e->reason);
+	int ret = -1;
+
+	switch (reason) {
+		case WLC_E_REASON_RMC_AR_LOST:
+		case WLC_E_REASON_RMC_AR_NO_ACK:
+			if (cfg->rmc_event_pid != 0) {
+				ret = wl_netlink_send_msg(cfg->rmc_event_pid,
+					RMC_EVENT_LEADER_CHECK_FAIL,
+					cfg->rmc_event_seq++, NULL, 0);
+			}
+			break;
+		default:
+			break;
+	}
+	WL_DBG(("rmcevent : evt=%d, pid=%d, ret=%d\n", evt, cfg->rmc_event_pid, ret));
+	return ret;
+}
 
 static s32
 wl_notify_roaming_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
@@ -9365,6 +9400,7 @@ static void wl_init_event_handler(struct bcm_cfg80211 *cfg)
 #ifdef WLAIBSS
 	cfg->evt_handler[WLC_E_AIBSS_TXFAIL] = wl_notify_aibss_txfail;
 #endif /* WLAIBSS */
+	cfg->evt_handler[WLC_E_RMC_EVENT] = wl_notify_rmc_status;
 }
 
 #if defined(STATIC_WL_PRIV_STRUCT)
@@ -11346,7 +11382,14 @@ s32 wl_cfg80211_up(void *para)
 	s32 err = 0;
 	int val = 1;
 	dhd_pub_t *dhd;
-
+#ifdef CUSTOMER_HW4
+	int ret = -1;
+	struct file *fp = NULL;
+	char *filepath = "/data/.cid.info";
+	s8 iovbuf[WL_EVENTING_MASK_LEN + 12];
+	char vender[10]={0,};
+	uint param = 0;
+#endif /* CUSTOMER_HW4 */
 	(void)para;
 	WL_DBG(("In\n"));
 	cfg = g_bcm_cfg;
@@ -11382,6 +11425,30 @@ s32 wl_cfg80211_up(void *para)
 #ifdef ROAM_CHANNEL_CACHE
 	init_roam(ioctl_version);
 #endif
+
+#ifdef CUSTOMER_HW4
+	fp = filp_open(filepath, O_RDONLY, 0);
+	if (IS_ERR(fp)) {
+		WL_ERR(("/data/.cid.info file open error\n"));
+
+	} else {
+		ret = kernel_read(fp, 0, (char *)vender, 5);
+
+		if(ret != -1 && NULL != strstr(vender,"wisol")) {
+			printk("wisol module detected: set pm_bcnrx=0, set scan_ps=0\n");
+			bcm_mkiovar("pm_bcnrx", (char *)&param, 4, iovbuf, sizeof(iovbuf));
+			err = wldev_ioctl(bcmcfg_to_prmry_ndev(cfg), WLC_SET_VAR, iovbuf, sizeof(iovbuf), true);
+			if (unlikely(err))
+				WL_ERR(("Set pm_bcnrx error (%d)\n", err));
+
+			bcm_mkiovar("scan_ps", (char *)&param, 4, iovbuf, sizeof(iovbuf));
+			err = wldev_ioctl(bcmcfg_to_prmry_ndev(cfg), WLC_SET_VAR, iovbuf, sizeof(iovbuf), true);
+			if (unlikely(err))
+				WL_ERR(("Set scan_ps error (%d)\n", err));
+		}
+		filp_close(fp, NULL);
+	}
+#endif /* CUSTOMER_HW4 */
 	mutex_unlock(&cfg->usr_sync);
 	return err;
 }
@@ -11909,6 +11976,12 @@ static bool
 wl_cfg80211_valid_chanspec_p2p(chanspec_t chanspec)
 {
 	bool valid = false;
+
+	if (ioctl_version != 1) {
+		if ((chanspec = wl_chspec_to_legacy(chanspec)) == INVCHANSPEC) {
+			return valid;
+		}
+	}
 
 	/* channel 1 to 14 */
 	if ((chanspec >= 0x2b01) && (chanspec <= 0x2b0e)) {
