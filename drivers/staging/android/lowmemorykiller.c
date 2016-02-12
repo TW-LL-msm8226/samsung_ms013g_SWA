@@ -46,15 +46,13 @@
 
 #define LMK_COUNT_READ
 
-#ifdef CONFIG_SEC_DEBUG_LMK_COUNT_INFO
-#define OOM_COUNT_READ
-#endif
 #ifdef LMK_COUNT_READ
 static uint32_t lmk_count = 0;
 #endif
 
 #ifdef CONFIG_SEC_OOM_KILLER
 #define MULTIPLE_OOM_KILLER
+#define OOM_COUNT_READ
 #endif
 
 #ifdef OOM_COUNT_READ
@@ -62,7 +60,7 @@ static uint32_t oom_count = 0;
 #endif
 
 #ifdef MULTIPLE_OOM_KILLER
-#define OOM_DEPTH 7
+#define OOM_DEPTH 5
 #endif
 
 static uint32_t lowmem_debug_level = 1;
@@ -144,6 +142,12 @@ static DEFINE_MUTEX(scan_mutex);
 #define SSWAP_LMK_THRESHOLD	(30720 * 2)
 #define CMA_PAGE_RATIO		70
 #endif
+
+#if defined(CONFIG_ZSWAP)
+extern atomic_t zswap_pool_pages;
+extern atomic_t zswap_stored_pages;
+#endif
+
 static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 {
 	struct task_struct *tsk;
@@ -162,6 +166,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	static DEFINE_RATELIMIT_STATE(lmk_rs, DEFAULT_RATELIMIT_INTERVAL, 1);
 #endif
 	unsigned long nr_cma_free;
+	struct reclaim_state *reclaim_state = current->reclaim_state;
 #if defined(CONFIG_CMA_PAGE_COUNTING)
 	unsigned long nr_cma_inactive_file;
 	unsigned long nr_cma_active_file;
@@ -267,6 +272,15 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			continue;
 		}
 		tasksize = get_mm_rss(p->mm);
+#if defined(CONFIG_ZSWAP)
+		if (atomic_read(&zswap_stored_pages)) {
+			lowmem_print(3, "shown tasksize : %d\n", tasksize);
+			tasksize += atomic_read(&zswap_pool_pages) * get_mm_counter(p->mm, MM_SWAPENTS)
+				/ atomic_read(&zswap_stored_pages);
+			lowmem_print(3, "real tasksize : %d\n", tasksize);
+		}
+#endif
+
 		task_unlock(p);
 		if (tasksize <= 0)
 			continue;
@@ -324,6 +338,8 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 #endif
 		/* give the system time to free up the memory */
 		msleep_interruptible(20);
+		if(reclaim_state)
+			reclaim_state->reclaimed_slab = selected_tasksize;
 	} else
 		rcu_read_unlock();
 
