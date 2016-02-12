@@ -727,11 +727,7 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	struct msm_command *cmd;
 	int session_id, stream_id;
 	unsigned long flags = 0;
-#if defined(CONFIG_MACH_MATISSE3G_OPEN) 
-    unsigned long timeout_jiffies = jiffies + msecs_to_jiffies(timeout);
-#else
-    int wait_count = 2000;
-#endif
+	int wait_count = 2000;
 
 	session_id = event_data->session_id;
 	stream_id = event_data->stream_id;
@@ -770,36 +766,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 		pr_err("%s:%d failed\n", __func__, __LINE__);
 		return rc;
 	}
-#if defined(CONFIG_MACH_MATISSE3G_OPEN) 
-		do {
-		/* should wait on session based condition for temp. */
-		rc = wait_event_interruptible_timeout(cmd_ack->wait, !list_empty_careful(&cmd_ack->command_q.list), msecs_to_jiffies(timeout));
-		if (rc != -ERESTARTSYS)
-			break;
-	
-		if (time_after_eq(jiffies, timeout_jiffies)) {
-			rc = -ERESTARTSYS;
-			break;
-		}
-		else
-			timeout = jiffies_to_msecs(timeout_jiffies-jiffies);
-		} while(1);
-	
-		if (list_empty_careful(&cmd_ack->command_q.list)) {
-			pr_err("%s:%d failed (rc = %d)\n", __func__, __LINE__, rc);
-			if (!rc) {
-				pr_err("%s: Timed out\n", __func__);
-				msm_print_event_error(event);
-				rc = -ERESTARTSYS;
-			}
-			if (rc < 0) {
-				msm_print_event_error(event);
-				pr_err("%s:%d failed\n", __func__, __LINE__);
-				mutex_unlock(&session->lock);
-				return rc;
-			}
-		}
-#else
 	do {
 		rc = wait_event_interruptible_timeout(cmd_ack->wait,
 			!list_empty_careful(&cmd_ack->command_q.list),
@@ -825,7 +791,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 			return rc;
 		}
 	}
-#endif
 	cmd = msm_dequeue(&cmd_ack->command_q,
 		struct msm_command, list);
 	if (!cmd) {
