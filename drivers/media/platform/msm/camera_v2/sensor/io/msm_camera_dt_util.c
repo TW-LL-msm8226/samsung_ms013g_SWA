@@ -631,7 +631,7 @@ int msm_camera_get_dt_power_off_setting_data(struct device_node *of_node,
 	|| defined(CONFIG_MACH_AFYONLTE_TMO) || defined(CONFIG_MACH_AFYONLTE_CAN) \
 	||defined(CONFIG_SEC_DEGAS_PROJECT) || defined (CONFIG_SEC_T8_PROJECT) \
 	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_MACH_AFYONLTE_MTR) \
-	|| defined(CONFIG_MACH_RUBENSLTE_OPEN) || defined(CONFIG_MACH_RUBENSWIFI_OPEN)
+	|| defined(CONFIG_SEC_RUBENS_PROJECT)
 			else if (!strcmp(seq_name, "sensor_gpio_ext_camio_en"))
 				ps[i].seq_val = SENSOR_GPIO_EXT_CAMIO_EN;
 
@@ -1408,8 +1408,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 		}
 #if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) \
 	|| defined(CONFIG_SEC_DEGAS_PROJECT) || defined (CONFIG_SEC_T8_PROJECT) \
-	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_MACH_RUBENSLTE_OPEN) \
-	|| defined (CONFIG_MACH_RUBENSWIFI_OPEN)
+	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_SEC_RUBENS_PROJECT)
 		if (power_setting->delay >= 10) {
 			usleep_range(power_setting->delay * 100,
 				power_setting->delay * 100 + 100);
@@ -1505,8 +1504,7 @@ power_up_failed:
 		}
 #if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) \
 	|| defined(CONFIG_SEC_DEGAS_PROJECT) || defined (CONFIG_SEC_T8_PROJECT) \
-	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_MACH_RUBENSLTE_OPEN) \
-	|| defined (CONFIG_MACH_RUBENSWIFI_OPEN)
+	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_SEC_RUBENS_PROJECT)
 		if (power_setting->delay) {
 			usleep_range(power_setting->delay * 100,
 				(power_setting->delay * 100) + 100);
@@ -1634,8 +1632,7 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 		}
 #if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) \
 	|| defined(CONFIG_SEC_DEGAS_PROJECT) || defined (CONFIG_SEC_T8_PROJECT) \
-	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_MACH_RUBENSLTE_OPEN) \
-	|| defined (CONFIG_MACH_RUBENSWIFI_OPEN)
+	|| defined (CONFIG_SEC_T10_PROJECT) || defined (CONFIG_SEC_RUBENS_PROJECT)
 		if (power_setting->delay) {
 			usleep_range(power_setting->delay * 100,
 				(power_setting->delay * 100) + 100);

@@ -259,7 +259,7 @@ static ssize_t front_camera_firmware_show(struct device *dev,
  #elif defined(CONFIG_SEC_HESTIA_PROJECT)
         char cam_fw[] = "S5K6B2YX N\n";
 #elif defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_MACH_MEGA2LTE_KTT)
-	char cam_fw[] = "S5K6B2YX S5K6B2YX\n";
+	char cam_fw[] = "S5K6B2YX N\n";
 #elif defined(CONFIG_MACH_VICTORLTE_CTC)
 	char cam_fw[] = "N N\n";
 #elif defined(CONFIG_SEC_VASTALTE_CHN_CMMCC_DUOS_PROJECT)

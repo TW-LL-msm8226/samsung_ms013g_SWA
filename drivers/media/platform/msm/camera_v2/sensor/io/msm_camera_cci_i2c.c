@@ -33,8 +33,7 @@
     defined(CONFIG_SEC_DEGAS_PROJECT) || \
     defined (CONFIG_SEC_T8_PROJECT) || \
     defined (CONFIG_SEC_T10_PROJECT) || \
-    defined (CONFIG_MACH_RUBENSLTE_OPEN) || \
-    defined (CONFIG_MACH_RUBENSWIFI_OPEN)
+    defined (CONFIG_SEC_RUBENS_PROJECT)
 
 #define BYTE_ADDR_DATA
 #elif defined(CONFIG_MACH_AFYONLTE_TMO) || \

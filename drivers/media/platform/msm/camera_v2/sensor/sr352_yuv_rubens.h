@@ -36821,7 +36821,9 @@ static struct msm_camera_i2c_reg_conf sr352_AEAWB_Unlock_50Hz[] = {
     {0xFF, 0x0A,}, //delay 100ms
 };
 
-#if defined (CONFIG_MACH_MILLETWIFI_OPEN) || defined(CONFIG_MACH_MILLET3G_EUR) || defined (CONFIG_MACH_RUBENSWIFI_OPEN) || defined (CONFIG_MACH_RUBENSLTE_OPEN)
+#if defined (CONFIG_MACH_MILLETWIFI_OPEN) \
+    || defined(CONFIG_MACH_MILLET3G_EUR) \
+    || defined (CONFIG_SEC_RUBENS_PROJECT)
 static struct msm_camera_i2c_reg_conf sr352_60hz_setting[] = {
 
     {0x03, 0x00,},
