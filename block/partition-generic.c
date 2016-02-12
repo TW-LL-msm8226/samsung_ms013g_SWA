@@ -278,7 +278,7 @@ void delete_partition(struct gendisk *disk, int partno)
 	dev = part_to_dev(part);
 	ST_LOG("<%s> KOBJ_REMOVE %d:%d %s",
 	__func__,MAJOR(dev->devt),MINOR(dev->devt),dev->kobj.name);
-#endif
+#endif	
 	device_del(part_to_dev(part));
 
 	hd_struct_put(part);
