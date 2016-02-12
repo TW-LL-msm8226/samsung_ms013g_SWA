@@ -39,7 +39,7 @@
 
 #if defined(CONFIG_LEDS_CLASS) || (defined(CONFIG_LEDS_CLASS_MODULE) && \
 	defined(CONFIG_MMC_SDHCI_MODULE))
-#if !defined(CONFIG_SEC_K_PROJECT) && !defined(CONFIG_SEC_H_PROJECT) && !defined(CONFIG_SEC_FRESCO_PROJECT) && !defined(CONFIG_MACH_CHAGALL_KDI)
+#if !defined(CONFIG_SEC_K_PROJECT) && !defined(CONFIG_SEC_H_PROJECT) && !defined(CONFIG_SEC_FRESCO_PROJECT)
 #define SDHCI_USE_LEDS_CLASS
 #endif
 #endif
@@ -1758,7 +1758,6 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	spin_unlock_irqrestore(&host->lock, flags);
 	if (ios->clock) {
 		sdhci_set_clock(host, ios->clock);
-
 		if (host->async_int_supp && sdhci_get_async_int_status(host)) {
 			if (host->disable_sdio_irq_deferred) {
 				pr_debug("%s: %s: disable sdio irq\n",
@@ -1962,12 +1961,11 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	if (!ios->clock) {
 		if (host->async_int_supp && host->mmc->card &&
 		    mmc_card_sdio(host->mmc->card)) {
-				sdhci_cfg_async_intr(host, true);
-				pr_debug("%s: %s: config async intr\n",
-					mmc_hostname(host->mmc), __func__);
+			sdhci_cfg_async_intr(host, true);
+			pr_debug("%s: %s: config async intr\n",
+				mmc_hostname(host->mmc), __func__);
 		}
 		sdhci_set_clock(host, ios->clock);
-
 	}
 	spin_lock_irqsave(&host->lock, flags);
 	sdhci_cfg_irq(host, true);

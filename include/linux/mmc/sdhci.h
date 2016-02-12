@@ -179,6 +179,7 @@ struct sdhci_host {
  * calculated based on the base clock.
  */
 #define SDHCI_QUIRK2_DIVIDE_TOUT_BY_4 (1 << 8)
+
 /*
  * Some SDHC controllers are unable to handle data-end bit error in
  * 1-bit mode of SDIO.
