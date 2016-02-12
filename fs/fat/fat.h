@@ -12,7 +12,7 @@
 #ifdef CONFIG_FAT_SUPPORT_STLOG
 #include <linux/stlog.h>
 #else
-#define ST_LOG(fmt,...)
+#define ST_LOG(fmt,...) 
 #endif
 
 /*
