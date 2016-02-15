@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -260,8 +260,6 @@ static int wcd9xxx_slim_read_device(struct wcd9xxx *wcd9xxx, unsigned short reg,
 
 	if (ret)
 		pr_err("%s: Error, Codec read failed (%d)\n", __func__, ret);
-	if (ret == -5 )
-        panic("Force Panic due to Codec Write Fail");
 
 	return ret;
 }
@@ -291,8 +289,6 @@ static int wcd9xxx_slim_write_device(struct wcd9xxx *wcd9xxx,
 
 	if (ret)
 		pr_err("%s: Error, Codec write failed (%d)\n", __func__, ret);
-    if (ret == -5 )
-        panic("Force Panic due to Codec Write Fail");
 
 	return ret;
 }
@@ -559,7 +555,6 @@ static const struct intr_data intr_tbl_v2[] = {
 	{WCD9XXX_IRQ_EAR_PA_OCPL_FAULT, false},
 	{WCD9XXX_IRQ_HPH_L_PA_STARTUP, false},
 	{WCD9XXX_IRQ_HPH_R_PA_STARTUP, false},
-	{WCD9320_IRQ_EAR_PA_STARTUP, false},
 	{WCD9XXX_IRQ_RESERVED_0, false},
 	{WCD9XXX_IRQ_RESERVED_1, false},
 	{WCD9XXX_IRQ_MAD_AUDIO, false},
@@ -609,7 +604,7 @@ static int wcd9xxx_device_init(struct wcd9xxx *wcd9xxx)
 				wcd9xxx->codec_type->num_irqs,
 				wcd9xxx_num_irq_regs(wcd9xxx),
 				wcd9xxx_reg_read, wcd9xxx_reg_write,
-				wcd9xxx_bulk_read);
+				wcd9xxx_bulk_read, wcd9xxx_bulk_write);
 
 	if (wcd9xxx_core_irq_init(&wcd9xxx->core_res))
 		goto err;
@@ -1582,14 +1577,12 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	ret = wcd9xxx_init_supplies(wcd9xxx, pdata);
 	if (ret) {
 		pr_err("%s: Fail to init Codec supplies %d\n", __func__, ret);
-		panic("wcd Fail to init Codec supplies");
 		goto err_codec;
 	}
 	ret = wcd9xxx_enable_static_supplies(wcd9xxx, pdata);
 	if (ret) {
 		pr_err("%s: Fail to enable Codec pre-reset supplies\n",
 		       __func__);
-		panic("wcd Fail to enable Codec pre-reset supplies");
 		goto err_codec;
 	}
 	usleep_range(5, 5);
@@ -1606,7 +1599,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	if (ret) {
 		pr_err("%s: failed to get slimbus %s logical address: %d\n",
 		       __func__, wcd9xxx->slim->name, ret);
-		panic("wcd failed to get slimbus logical address");
 		goto err_reset;
 	}
 	wcd9xxx->read_dev = wcd9xxx_slim_read_device;
@@ -1620,7 +1612,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	ret = slim_add_device(slim->ctrl, wcd9xxx->slim_slave);
 	if (ret) {
 		pr_err("%s: error, adding SLIMBUS device failed\n", __func__);
-		panic("wcd error slim device add");
 		goto err_reset;
 	}
 
@@ -1639,7 +1630,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	ret = wcd9xxx_device_init(wcd9xxx);
 	if (ret) {
 		pr_err("%s: error, initializing device failed\n", __func__);
-		panic("wcd initializing device failed");
 		goto err_slim_add;
 	}
 #ifdef CONFIG_DEBUG_FS
@@ -1661,12 +1651,10 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	return ret;
 
 err_slim_add:
-	panic("wcd error slim adding");
 	slim_remove_device(wcd9xxx->slim_slave);
 err_reset:
 	wcd9xxx_free_reset(wcd9xxx);
 err_supplies:
-	panic("wcd error slim adding");
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 err_codec:
 	kfree(wcd9xxx);
@@ -1747,7 +1735,6 @@ static int wcd9xxx_slim_device_down(struct slim_device *sldev)
 {
 	struct wcd9xxx *wcd9xxx = slim_get_devicedata(sldev);
 
-	dev_info(wcd9xxx->dev, "%s: device down\n", __func__);
 	if (!wcd9xxx) {
 		pr_err("%s: wcd9xxx is NULL\n", __func__);
 		return -EINVAL;

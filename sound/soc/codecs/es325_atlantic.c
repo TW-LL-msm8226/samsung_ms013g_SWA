@@ -2057,7 +2057,6 @@ static int fw_download(void *arg)
 
 	usleep_range(10000, 11000);
 	rc = es325_bootup(priv);
-	BUG_ON(rc != 0);
 #endif
 	pr_info("%s():bootup rc=%d\n", __func__, rc);
 	release_firmware(priv->fw);

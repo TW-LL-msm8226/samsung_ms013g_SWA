@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,8 +27,9 @@
 #include <asm/mach-types.h>
 #include <mach/socinfo.h>
 #include <mach/subsystem_notif.h>
-#include "qdsp6v2/msm-pcm-routing-v2.h"
-#include "qdsp6v2/q6core.h"
+#include <sound/q6core.h>
+
+#include <qdsp6v2/msm-pcm-routing-v2.h>
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9306.h"
 
@@ -68,7 +69,7 @@
 #define LO_1_SPK_AMP   0x1
 #define LO_2_SPK_AMP   0x2
 
-#define ADSP_STATE_READY_TIMEOUT_MS 3000
+#define ADSP_STATE_READY_TIMEOUT_MS 50
 
 static void *adsp_state_notifier;
 
@@ -96,6 +97,7 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.read_fw_bin = false,
 	.calibration = NULL,
 	.micbias = MBHC_MICBIAS2,
+	.anc_micbias = MBHC_MICBIAS2,
 	.mclk_cb_fn = msm_snd_enable_codec_ext_clk,
 	.mclk_rate = TAPAN_EXT_CLK_RATE,
 	.gpio = 0,
@@ -107,9 +109,12 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.swap_gnd_mic = NULL,
 	.cs_enable_flags = (1 << MBHC_CS_ENABLE_POLLING |
 			    1 << MBHC_CS_ENABLE_INSERTION |
-			    1 << MBHC_CS_ENABLE_REMOVAL),
+			    1 << MBHC_CS_ENABLE_REMOVAL |
+			    1 << MBHC_CS_ENABLE_DET_ANC),
 	.do_recalibration = true,
 	.use_vddio_meas = true,
+	.enable_anc_mic_detect = false,
+	.hw_jack_type = FOUR_POLE_JACK,
 };
 
 struct msm_auxpcm_gpio {
@@ -490,7 +495,7 @@ static const struct soc_enum msm_enum[] = {
 	SOC_ENUM_SINGLE_EXT(4, slim0_tx_ch_text),
 };
 
-static const char *const btsco_rate_text[] = {"8000", "16000"};
+static const char *const btsco_rate_text[] = {"BTSCO_RATE_8KHZ", "BTSCO_RATE_16KHZ"};
 static const struct soc_enum msm_btsco_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
 };
@@ -1891,7 +1896,7 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM8,
 	},
-	{
+	{/* hw:x,28 */
 		.name = "INT_HFP_BT Hostless",
 		.stream_name = "INT_HFP_BT Hostless",
 		.cpu_dai_name   = "INT_HFP_BT_HOSTLESS",
@@ -1906,7 +1911,7 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
-	{
+	{/* hw:x,29 */
 		.name = "MSM8226 HFP TX",
 		.stream_name = "MultiMedia6",
 		.cpu_dai_name = "MultiMedia6",
@@ -1921,6 +1926,21 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		/* this dai link has playback support */
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA6,
+	},
+	{/* hw:x,30 */
+		.name = "VoWLAN",
+		.stream_name = "VoWLAN",
+		.cpu_dai_name   = "VoWLAN",
+		.platform_name  = "msm-pcm-voice",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.be_id = MSM_FRONTEND_DAI_VOWLAN,
 	},
 	/* Backend BT/FM DAI Links */
 	{
@@ -2706,6 +2726,8 @@ static __devinit int msm8226_asoc_machine_probe(struct platform_device *pdev)
 	struct msm8226_asoc_mach_data *pdata;
 	int ret;
 	const char *auxpcm_pri_gpio_set = NULL;
+	const char *mbhc_audio_jack_type = NULL;
+	size_t n = strlen("4-pole-jack");
 	struct device_node *reg_node = NULL;
 
 	if (!pdev->dev.of_node) {
@@ -2772,6 +2794,35 @@ static __devinit int msm8226_asoc_machine_probe(struct platform_device *pdev)
 
 	mbhc_cfg.gpio_level_insert = of_property_read_bool(pdev->dev.of_node,
 					"qcom,headset-jack-type-NC");
+
+	ret = of_property_read_string(pdev->dev.of_node,
+		"qcom,mbhc-audio-jack-type", &mbhc_audio_jack_type);
+	if (ret) {
+		dev_dbg(&pdev->dev, "Looking up %s property in node %s failed",
+			"qcom,mbhc-audio-jack-type",
+			pdev->dev.of_node->full_name);
+		mbhc_cfg.hw_jack_type = FOUR_POLE_JACK;
+		mbhc_cfg.enable_anc_mic_detect = false;
+		dev_dbg(&pdev->dev, "Jack type properties set to default");
+	} else {
+		if (!strncmp(mbhc_audio_jack_type, "4-pole-jack", n)) {
+			mbhc_cfg.hw_jack_type = FOUR_POLE_JACK;
+			mbhc_cfg.enable_anc_mic_detect = false;
+			dev_dbg(&pdev->dev, "This hardware has 4 pole jack");
+		} else if (!strncmp(mbhc_audio_jack_type, "5-pole-jack", n)) {
+			mbhc_cfg.hw_jack_type = FIVE_POLE_JACK;
+			mbhc_cfg.enable_anc_mic_detect = true;
+			dev_dbg(&pdev->dev, "This hardware has 5 pole jack");
+		} else if (!strncmp(mbhc_audio_jack_type, "6-pole-jack", n)) {
+			mbhc_cfg.hw_jack_type = SIX_POLE_JACK;
+			mbhc_cfg.enable_anc_mic_detect = true;
+			dev_dbg(&pdev->dev, "This hardware has 6 pole jack");
+		} else {
+			mbhc_cfg.hw_jack_type = FOUR_POLE_JACK;
+			mbhc_cfg.enable_anc_mic_detect = false;
+			dev_dbg(&pdev->dev, "Unknown value, hence setting to default");
+		}
+	}
 
 	ret = snd_soc_register_card(card);
 	if (ret == -EPROBE_DEFER)
